@@ -1,0 +1,5 @@
+# Harness / local execution scratch state — never publish
+.claude/
+
+# Private evaluation run outputs live outside this repo
+# (e.g. ~/.local/share/evaluation-runs, ~/.local/share/evaluation-bundles)
