@@ -16,7 +16,10 @@ publishes a new evaluation Capsule.
 # Capsule CLI (MySQL + SQLite backends). Installs the `capsulectl` binary; the
 # older builds installed it as `capsule`, which collided with the Python
 # capsule-emit CLI on PATH.
-git -C ~/GitHub/capsule-cli pull && (cd ~/GitHub/capsule-cli && go install ./cmd/capsulectl)
+CAPSULE_CLI=~/GitHub/capsule-cli   # cloned capsule-cli repo
+git -C "$CAPSULE_CLI" pull && (cd "$CAPSULE_CLI" && go install ./cmd/capsulectl)
+# remove any stale `capsule` from a previous install so it no longer shadows capsulectl
+BIN="$(go env GOBIN)"; GOPATH="$(go env GOPATH)"; rm -f "${BIN:-${GOPATH%%:*}/bin}/capsule"
 capsulectl --version    # capsulectl version 0.1.0-dev
 ```
 
@@ -47,7 +50,8 @@ one investigation trigger/run. `target_mode=evidence_derived`, `aggregation=none
 
    ```sh
    ./bin/capsule cll list --profile alchemy --after 164 --through 165 --limit 1000
-   ./bin/capsule get    --profile alchemy --capsule-id <ID> --raw --output rec.json
+   ID=$(./bin/capsule cll list --profile alchemy --after 164 --through 165 --limit 1000 | python3 -c 'import sys,json;print(json.load(sys.stdin)["entries"][-1]["capsule_id"])')
+   ./bin/capsule get    --profile alchemy --capsule-id "$ID" --raw --output rec.json
    ./bin/capsule verify --profile alchemy --capsule rec.json      # identity/signature/bindings
    gh api --hostname github.ibm.com /repos/lakehouse/tracker/issues/82049
    gh api --hostname github.ibm.com /repos/lakehouse/tracker/issues/82049/comments
@@ -84,7 +88,11 @@ B3 is the compiler run over that CLL (log `tau2-retail-20260909`).
 
 ```sh
 umask 077   # new key/config files are created owner-only, no world-readable window
-DEMO=~/.local/share/evaluation-runs/tau2-eval; mkdir -p "$DEMO/keys"
+DEMO=~/.local/share/evaluation-runs/tau2-eval
+# start clean so the block is re-runnable (removes only this demo's own run dir
+# and the tau2demo profile; profile create / store init are not idempotent)
+rm -rf "$DEMO"; rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/capsule/profiles/tau2demo.yaml"
+mkdir -p "$DEMO/keys"
 # generate an ed25519 signer (seed hex -> key file; public hex -> trusted key)
 read SEED PUB < <(python3 -c "
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -120,8 +128,10 @@ it. It never invents operator/developer; both default to demo values and a real
 deployment passes `--operator/--developer`.
 
 ```sh
-RES=~/GitHub/tau2-bench/data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json
-python3 ~/GitHub/evaluation-compiler/tools/tau2-backfill/backfill.py \
+TAU2=~/GitHub/tau2-bench            # cloned tau2-bench repo
+EC=~/GitHub/evaluation-compiler     # this repo
+RES="$TAU2/data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json"
+python3 "$EC/tools/tau2-backfill/backfill.py" \
   --results "$RES" --out "$DEMO/backfill" --trial 0 --select 0 1
 capsulectl publish --profile tau2demo --request "$DEMO/backfill/interaction-0.json"
 capsulectl publish --profile tau2demo --request "$DEMO/backfill/interaction-1.json"
@@ -163,7 +173,8 @@ Retrieve the evaluation Capsule the same way as any capsule:
 
 ```sh
 capsulectl cll list --profile tau2demo --after 2 --through 3
-capsulectl get --profile tau2demo --capsule-id <seq-3 evaluation Capsule id>
+ID=$(capsulectl cll list --profile tau2demo --after 2 --through 3 | python3 -c 'import sys,json;e=json.load(sys.stdin)["entries"];print(e[-1]["capsule_id"] if e else "")')
+capsulectl get --profile tau2demo --capsule-id "$ID"
 ```
 
 The judged system here is the shipped `claude-3-7-sonnet` retail run (user
