@@ -89,9 +89,11 @@ B3 is the compiler run over that CLL (log `tau2-retail-20260909`).
 ```sh
 umask 077   # new key/config files are created owner-only, no world-readable window
 DEMO=~/.local/share/evaluation-runs/tau2-eval
-# start clean so the block is re-runnable (removes only this demo's own run dir
-# and the tau2demo profile; profile create / store init are not idempotent)
-rm -rf "$DEMO"; rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/capsule/profiles/tau2demo.yaml"
+# re-runnable clean slate (store init / profile create are not idempotent):
+# delete the old tau2 SQLite CLL and the tau2demo profile first
+rm -f "$DEMO"/store.db*                                             # the old SQLite CLL (+ WAL/SHM)
+rm -rf "$DEMO"                                                      # keys/, backfill/, any prior run
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/capsule/profiles/tau2demo.yaml"
 mkdir -p "$DEMO/keys"
 # generate an ed25519 signer (seed hex -> key file; public hex -> trusted key)
 read SEED PUB < <(python3 -c "
@@ -117,31 +119,29 @@ The SQLite store keeps the artifact tables and the CLL log in one file
 Backfill reads **only shipped tau2 results**: no agent run, no user simulator,
 **no model/LLM API key**, and nothing synthesized. tau2-bench is a runnable
 benchmark and ships its recorded runs under `data/tau2/results/final/*.json`;
-each file holds `simulations[]`, one per `(task_id, trial)`, with the real agent
-+ user-simulator transcript. `tools/tau2-backfill/backfill.py` maps selected
-simulations to one `capsule-seal-request/v1` each: the bound `payload` carries
-the real `agent_interaction` (transcript + tool calls, with each call's
-`requestor` attribution), a `case` block (`task_id`, `trial`), and `provenance`
-(results file, agent/user-simulator LLMs, seed). The domain label is taken from
-the results file (`environment_info.domain_name`); `--domain` may only confirm
-it. It never invents operator/developer; both default to demo values and a real
-deployment passes `--operator/--developer`.
+each file holds `simulations[]` for every `(task_id, trial)`, with the real agent
++ user-simulator transcript. `tools/tau2-backfill/backfill.py` takes just the
+results file and an output dir, and writes one `capsule-seal-request/v1` per task
+(its trial-0 run) as `task-<id>.json`. The bound `payload` carries the real
+`agent_interaction` (transcript + tool calls, with each call's `requestor`
+attribution), a `case` block, and `provenance`. Domain is read from the results
+file; the Capsule's operator/developer are fixed backfill-provenance labels.
 
 ```sh
 TAU2=~/GitHub/tau2-bench            # cloned tau2-bench repo
 EC=~/GitHub/evaluation-compiler     # this repo
 RES="$TAU2/data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json"
-python3 "$EC/tools/tau2-backfill/backfill.py" \
-  --results "$RES" --out "$DEMO/backfill" --trial 0 --select 0 1
-capsulectl publish --profile tau2demo --request "$DEMO/backfill/interaction-0.json"
-capsulectl publish --profile tau2demo --request "$DEMO/backfill/interaction-1.json"
-capsulectl cll list --profile tau2demo --after 0
+python3 "$EC/tools/tau2-backfill/backfill.py" --results "$RES" --out "$DEMO/backfill"
+# publish every backfilled interaction (one per task) as one CLL entry
+for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile tau2demo --request "$f" >/dev/null; done
+capsulectl cll list --profile tau2demo --after 0 --limit 1000 \
+  | python3 -c 'import sys,json;print("CLL entries:",len(json.load(sys.stdin)["entries"]))'
 ```
 
-Each `publish` appends one CLL entry. Reproducible result — Capsule IDs are
+The retail file backfills **114 tasks** → 114 CLL entries. Capsule IDs are
 content-addressed (JCS over the metadata and payload digest), so they do **not**
-depend on the signing key: **seq 1** = `e9fa572d…` (task 0, trial 0), **seq 2** =
-`2daa93d9…` (task 1, trial 0). `payload` is bound (`agent_input_digest`) and
+depend on the signing key: **seq 1** = `e9fa572d…` (task 0), **seq 2** =
+`2daa93d9…` (task 1). `payload` is bound (`agent_input_digest`) and
 therefore authenticated. The desired outcome for judging is the task's
 `evaluation_criteria`, which the judge reads independently from the dataset by
 `payload.case.task_id`. Neither it nor tau2's own `reward_info` (the benchmark's
@@ -161,19 +161,19 @@ form above needs no manual digest computation.)
 2. Run the generated skill in a fresh agent with `profile=tau2demo`,
    `selection=(1,2]`, `dataset_path=…/retail/tasks.json`, `run_dir=…/tau2-eval/run`.
    It enumerates the SQLite CLL, `get --raw` + `verify`s the seq-2 Capsule
-   (`2daa93d9…`, task-1 trial-0), reads the desired outcome from the dataset by
+   (`2daa93d9…`, task 1), reads the desired outcome from the dataset by
    `payload.case.task_id`, extracts the agent outcome from the real
    `agent_interaction` transcript, judges the three axes, and publishes a new
-   `evaluation-report/v1` Capsule at sequence 3 — identical commands to Demo A,
-   only the profile differs.
+   `evaluation-report/v1` Capsule at **sequence 115** (one past the 114 backfilled
+   entries) — identical commands to Demo A, only the profile differs.
 
 B3 describes the compiler run; unlike B1/B2 it has not yet been executed against
 these real trajectories, so no evaluation Capsule id or judgments are pinned.
 Retrieve the evaluation Capsule the same way as any capsule:
 
 ```sh
-capsulectl cll list --profile tau2demo --after 2 --through 3
-ID=$(capsulectl cll list --profile tau2demo --after 2 --through 3 | python3 -c 'import sys,json;e=json.load(sys.stdin)["entries"];print(e[-1]["capsule_id"] if e else "")')
+capsulectl cll list --profile tau2demo --after 114 --through 115
+ID=$(capsulectl cll list --profile tau2demo --after 114 --through 115 | python3 -c 'import sys,json;e=json.load(sys.stdin)["entries"];print(e[-1]["capsule_id"] if e else "")')
 capsulectl get --profile tau2demo --capsule-id "$ID"
 ```
 
@@ -210,8 +210,8 @@ capsulectl profile update --profile tau2demo \
   --checkpoint-signing-key-file "$CKEY" --checkpoint-trusted-key "$CPUB"
 
 capsulectl cll checkpoint create --profile tau2demo
-# after B1+B2 (2 entries): {"checkpoint":3,"indexed_sequence":2,"statement":"<base64 COSE>", ...}
-# checkpoint is the MMR size, not the entry count; running B3 appends sequence 3 and makes it 4 / 3.
+# after B1+B2 (114 entries): {"checkpoint":224,"indexed_sequence":114,"statement":"<base64 COSE>", ...}
+# checkpoint is the MMR size, not the entry count; running B3 appends sequence 115 and makes it 225 / 115.
 ```
 
 With no endpoint configured, `create` is fully local: it builds and COSE-signs the

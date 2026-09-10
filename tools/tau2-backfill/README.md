@@ -3,24 +3,27 @@
 `backfill.py` turns real [tau2-bench](https://github.com/sierra-research/tau2-bench)
 runs into `capsule-seal-request/v1` files for Demo B. tau2-bench is a runnable
 benchmark and ships its recorded runs under `data/tau2/results/final/*.json`;
-each file holds `simulations[]`, one per `(task_id, trial)`, with the real agent
+each file holds `simulations[]` for every `(task_id, trial)`, with the real agent
 and user-simulator transcript. This script reads those shipped results only — no
 agent run, no user simulator, no model/LLM API key, and nothing is synthesized.
-Each output file is one request that `capsulectl publish --request ...` appends
-to the local SQLite CLL as one entry.
+It has exactly two arguments:
 
 ```sh
 RES=~/GitHub/tau2-bench/data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json
-python3 backfill.py --results "$RES" --out "$DEMO/backfill" \
-  --trial 0 --select 0 1
+python3 backfill.py --results "$RES" --out "$DEMO/backfill"
 ```
 
-The domain label is read from the results file (`environment_info.domain_name`);
-pass `--domain` only to confirm it (a mismatch is an error). `--select` takes
-task ids in order (default: the first `--limit` task ids in the results file's
-declared task order). `--operator`/`--developer` default to demo values
-(`tau2-demo`, `tau2@backfill-v1`); a real deployment passes its own authorized
-identities. The capsule Timestamp is the simulation's own timestamp; a
+It writes **one request per task — that task's trial-0 run** — named
+`task-<id>.json` (task ids are sanitized for the filesystem; the retail file
+yields 114). Publish them all with a loop:
+
+```sh
+for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile tau2demo --request "$f"; done
+```
+
+The domain is read from the results file (`environment_info.domain_name`). The
+Capsule's Operator/Developer are fixed backfill-provenance labels (`tau2-demo`,
+`tau2@backfill-v1`), and the Timestamp is the simulation's own timestamp; a
 simulation without a usable one is rejected rather than stamped with `now()`.
 
 ## Payload layout
