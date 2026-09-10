@@ -42,23 +42,23 @@ one investigation trigger/run. `target_mode=evidence_derived`, `aggregation=none
 1. **Compile the bundle.** Invoke the `evaluation-compiler` skill with the scenario
    above and the access facts (profile `alchemy`). It writes the bundle to
    `~/.local/share/evaluation-bundles/alchemy-investigation/`
-   (`SKILL.md`, `axes.json`, `resolved-spec.json`, `references/{source,execution,capsule-cli}.md`,
-   `bin/capsule`).
+   (`SKILL.md`, `axes.json`, `resolved-spec.json`, `references/{source,execution,capsule-cli}.md`).
+   `capsulectl` is a host prerequisite on `PATH`, not part of the bundle.
 
 2. **Run the generated skill** in a fresh agent, passing only runtime inputs:
    `profile=alchemy`, `selection=(164,165]`, `run_dir=<private dir outside the bundle>`.
-   The skill performs, using `./bin/capsule` and `gh`:
+   The skill performs, using `capsulectl` and `gh`:
 
    ```sh
-   ./bin/capsule cll list --profile alchemy --after 164 --through 165 --limit 1000
-   ID=$(./bin/capsule cll list --profile alchemy --after 164 --through 165 --limit 1000 | python3 -c 'import sys,json;print(json.load(sys.stdin)["entries"][-1]["capsule_id"])')
-   ./bin/capsule get    --profile alchemy --capsule-id "$ID" --raw --output rec.json
-   ./bin/capsule verify --profile alchemy --capsule rec.json      # identity/signature/bindings
+   capsulectl cll list --profile alchemy --after 164 --through 165 --limit 1000
+   ID=$(capsulectl cll list --profile alchemy --after 164 --through 165 --limit 1000 | python3 -c 'import sys,json;print(json.load(sys.stdin)["entries"][-1]["capsule_id"])')
+   capsulectl get    --profile alchemy --capsule-id "$ID" --raw --output rec.json
+   capsulectl verify --profile alchemy --capsule rec.json      # identity/signature/bindings
    gh api --hostname github.ibm.com /repos/lakehouse/tracker/issues/82049
    gh api --hostname github.ibm.com /repos/lakehouse/tracker/issues/82049/comments
    # three isolated sub-agents: desired outcome, agent outcome, judge
-   ./bin/capsule publish --profile alchemy --request seal-request.json
-   ./bin/capsule get/verify + cll list        # read back the new evaluation Capsule
+   capsulectl publish --profile alchemy --request seal-request.json
+   # read back the new evaluation Capsule: capsulectl get + verify + cll list
    ```
 
    Bindings: `effect_request → effect.request_digest`, `effect_response →
@@ -82,9 +82,13 @@ compiler's job. Value proposition used here: **customer experience** — *"give 
 customer a clear, empathetic service experience that fully resolves their request
 in one interaction with minimal effort."*
 
-This demo uses the tau2 **airline** domain. B1 and B2 are verified and reproducible
-against the shipped tau2 airline results; B3/B4 are the compiler runs over that CLL
-(log `tau2-airline-20260910`), driven by the copy-paste prompts below.
+This demo uses the tau2 **airline** domain. Logical pipeline: **compile → backfill →
+run → aggregate**. The compile (B3) reads the *dataset* and needs no CLL, so it is
+independent of the backfill; B1–B2 create the CLL and load the interactions that the
+**run** (B3) then reads; B4 aggregates. The sections below list CLL setup (B1–B2)
+first only because the run needs it — you may compile before or after backfilling. B1
+and B2 are verified/reproducible against the shipped airline results; the B3/B4
+compiler runs are presenter-driven (log `tau2-airline-20260910`).
 
 ### B1. Create a local SQLite CLL
 
@@ -146,7 +150,11 @@ capsulectl cll list --profile airlinedemo --after 0 --limit 1000 \
 The airline file backfills **50 tasks** → 50 CLL entries. Capsule IDs are
 content-addressed (JCS over the metadata and payload digest), so they do **not**
 depend on the signing key: **seq 1** = `56b1f95f…` (task 0), **seq 2** =
-`ec5b0c62…` (task 1, a 26-message conversation). `payload` is bound
+`ec5b0c62…` (task 1, a 26-message conversation). CLL sequence follows the publish
+order — the shell glob over `task-*.json`, which is lexical (`task-0`, `task-1`,
+`task-10`, …, `task-2`), **not** `task_id` order — so beyond seq 1/2 the sequence
+number is not the task number; select a specific case by its capsule/`case.task_id`,
+not by assuming `seq == task`. `payload` is bound
 (`agent_input_digest`) and therefore authenticated. The desired outcome for judging
 is the task's declared `user_scenario.instructions`, which the judge reads
 independently from the dataset by `payload.case.task_id`. Neither it nor tau2's own
@@ -197,12 +205,13 @@ prepared facts. The exchange below is from a real run.
 
 From here the skill inspects the **original benchmark data** — one sample run from the
 results file and one task scenario from the dataset — to confirm the shape and target
-mode (no CLL exists yet), finalizes the axes, and compiles the bundle to
+mode, finalizes the axes, and compiles the bundle to
 `~/.local/share/evaluation-bundles/airline-investigation/`: `axes.json`,
-`references/source.md` (the dataset→Capsule payload mapping the backfill will follow),
-`resolved-spec.json`, `references/{execution,capsule-cli}.md`, `bin/capsule`. The CLL
-is created afterward by the backfill step (B1/B2); the generated skill reads it at run
-time.
+`references/source.md` (the dataset→Capsule payload mapping the backfill follows),
+`resolved-spec.json`, and `references/{execution,capsule-cli}.md` (`capsulectl` is a
+host prerequisite, not bundled). Compile touches no CLL — it reads the dataset — so it
+is independent of B1/B2; the CLL that the run step below reads is the one B1/B2 create
+(run them in either order, they meet at the run).
 
 **Run the generated skill on one case** — a runtime invocation, not intake:
 
@@ -252,13 +261,17 @@ itself signed, checkpointable and witnessable.
 > aggregation bundle whose input is the `evaluation-report/v1` Capsules (not the source
 > interactions).
 >
-> **You:** Now run that aggregation skill: `profile=airlinedemo`, selection = the
-> report Capsules after the 50 backfilled entries (a full 50-case run lands at seqs
-> 51–100). Reduce the axis judgments across cases under one cohort with unique
+> **You:** Now run that aggregation skill: `profile=airlinedemo`, over this run's
+> `evaluation-report/v1` Capsules. Select them by **type + shared axes digest +
+> cohort**, not by a fixed sequence window — a full 50-case run appends its reports
+> after the 50 backfilled entries, but any earlier one-case B3 report shifts those
+> positions. Reduce the axis judgments across cases under one cohort with unique
 > case/trial dedup, and publish one `evaluation-summary/v1` Capsule.
 
 ```sh
-capsulectl cll list --profile airlinedemo --after 50 --through 100   # the evaluation reports
+# the appended evaluation reports — filter to evaluation-report/v1 with this bundle's
+# axes digest; don't assume a fixed seq window (seq 51+ only if nothing else appended)
+capsulectl cll list --profile airlinedemo --after 50 --limit 1000
 ```
 
 Aggregating all 50 airline tasks means 50 per-case judge runs first (paid). The
@@ -300,8 +313,9 @@ offline (optionally with a Capsule inclusion proof):
 
 ```sh
 STMT=$(echo "$CP" | python3 -c "import sys,json;print(json.load(sys.stdin)['statement'])")   # reuse the create above
-python3 -c "import json;open('/tmp/proof.json','w').write(json.dumps({'checkpoint':'$STMT'}))"
-capsulectl cll verify --profile airlinedemo --proof /tmp/proof.json
+mkdir -p "$DEMO/run"   # owner-only (umask 077); avoids a shared /tmp symlink target
+python3 -c "import json,sys;open(sys.argv[1],'w').write(json.dumps({'checkpoint':sys.argv[2]}))" "$DEMO/run/proof.json" "$STMT"
+capsulectl cll verify --profile airlinedemo --proof "$DEMO/run/proof.json"
 # -> checkpoint_signature_and_trust=passed, log_id=passed, embedded_consistency=passed
 #    inclusion=not_performed (exit 3, partial) unless the proof includes capsule_id + path
 ```
@@ -386,8 +400,9 @@ curl -s "https://witness.agentactioncapsule.org/checkpoints/$LOG"
 
 # verify the checkpoint offline against the trusted checkpoint key (no network).
 # Reuse $STMT captured from the single C3 create above — do not re-create at this size.
-python3 -c "import json,sys;open('/tmp/proof.json','w').write(json.dumps({'checkpoint':sys.argv[1]}))" "$STMT"
-capsulectl cll verify --profile airlinedemo --proof /tmp/proof.json
+mkdir -p "$DEMO/run"
+python3 -c "import json,sys;open(sys.argv[1],'w').write(json.dumps({'checkpoint':sys.argv[2]}))" "$DEMO/run/proof.json" "$STMT"
+capsulectl cll verify --profile airlinedemo --proof "$DEMO/run/proof.json"
 # -> checkpoint_signature_and_trust=passed, embedded_consistency=passed, log_id=passed
 #    inclusion=not_performed (exit 3, partial): this CLI build has no per-Capsule
 #    audit-path emitter, so a single Capsule's inclusion against the checkpointed
@@ -429,9 +444,15 @@ enqueued.
 ## D. Verify a Capsule — and catch tampering
 
 Every Capsule is content-addressed and its `payload` is **bound**, so verification is
-offline and needs no trust in the producer: the CLI recomputes the content address and
-the payload digest and checks the Ed25519 producer signature against the trusted key.
-Tampering with the payload breaks that chain. Uses the airline CLL from B1/B2.
+offline — but be precise about what each check buys. Given the **expected `capsule_id`**
+(the one you already trust, from the CLL or a permalink), recomputing the content
+address and payload digest catches **any** change to the bytes, no key needed. That
+only works against an id you pinned independently: hand someone an arbitrary record
+with no trusted `capsule_id` and a forger can recompute a self-consistent id for a
+tampered payload — so genuineness ultimately rests on the **producer signature** checked
+against a key you independently trust (the profile's `--trusted-key`). Tampering with
+the payload breaks the content-address chain against the pinned id, and breaks the
+signature regardless. Uses the airline CLL from B1/B2.
 
 ### D1. Positive — a genuine Capsule verifies
 
@@ -474,6 +495,9 @@ capsulectl verify --profile airlinedemo --capsule tampered.json ; echo "exit=$?"
 
 The recomputed payload digest no longer matches the `agent_input_digest` the Capsule
 committed to (nor the content-addressed `capsule_id`), so `capsule_and_artifacts`
-**fails** and the CLI exits non-zero. No signing key and no network needed — anyone
-holding the record catches the change offline. This is exactly what a buyer does with
-a shared evaluation-report Capsule: re-verify it themselves, trusting no one.
+**fails** and the CLI exits non-zero. This catch is naive-tamper only — the forger
+here left `capsule_id` untouched. Against a `capsule_id` you already trust, detecting
+change needs no key; a forger who also recomputes a matching `capsule_id` is caught
+only by the producer signature checked against a trusted key. So a buyer recomputes
+the content address against the `capsule_id` they trust to detect tampering, and
+checks the signature against a producer key they independently trust.

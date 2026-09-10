@@ -87,7 +87,7 @@ the dropped/skipped reports, verification references and limitations.
 
 Prepare a `capsule-seal-request/v1` request as specified in `capsule-cli.md`; AAC
 digest inputs reject floating-point numbers, so encode rates and any decimal metadata
-as decimal strings. Call `capsule publish`, then get the returned summary Capsule,
+as decimal strings. Call `capsulectl publish`, then get the returned summary Capsule,
 verify its identity/signature/trust and bound payload, and read back its sequence from
 the target CLL. The summary is itself an appended, checkpointable, witnessable Capsule.
 Keep run data outside the distributed bundle. Report the summary Capsule ID/sequence,

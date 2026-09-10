@@ -25,8 +25,9 @@ way.
   copied verbatim into bundles.
 - [`demo/`](demo/) — a self-contained demonstration, **not** compiler input. It holds
   `demo/DEMO.md` (end-to-end reproductions: an Alchemy investigation over an existing
-  CLL, and a tau2 customer-service evaluation over a local SQLite CLL — create →
-  backfill → compile → evaluate — plus checkpointing and witnessing), `demo/slides/`,
+  CLL, and a tau2 customer-service evaluation over a local SQLite CLL — compile →
+  backfill → run → aggregate — plus an offline CLL checkpoint and the witness
+  procedure), `demo/slides/`,
   and `demo/tau2-backfill/` (operator-side data-prep mapping shipped tau2 runs into
   seal requests). The compiler ignores this folder when compiling.
 

@@ -1,13 +1,13 @@
 # Capsule CLI contract
 
-Compatible implementation: capsule-cli with the MySQL and SQLite backends. The bundled executable is `bin/capsule` relative to the generated skill — a copy of the built CLI (installed on the host as `capsulectl`), kept under the fixed bundle-local name and always invoked by that relative path, so it never depends on or collides with anything on `PATH`. Requires a configured profile on the execution host. No database credentials belong in prompts or bundles.
+Compatible implementation: capsule-cli with the MySQL and SQLite backends, installed on the execution host as `capsulectl` on `PATH`. The CLI is a prerequisite, **not** copied into the bundle; invoke it as `capsulectl`. Requires a configured profile on the execution host. No database credentials belong in prompts or bundles.
 
 All successful stdout is a flat JSON object with spec_version=capsule-cli-result/v1. There is no result wrapper. Check process exit status before parsing; a JSON report does not imply success. Errors: 1 operational, 2 input, 3 partial verification, 4 publication pending, 5 conflict. Never suppress errors with an empty-list fallback.
 
 ## Resolve the profile
 
 ```sh
-./bin/capsule profile show --profile NAME
+capsulectl profile show --profile NAME
 ```
 
 Read `StoreID`, `Namespace` and `LogID` to freeze the target; `ReadOnly` describes write configuration. Do not save the entire profile or its credentials in the run or bundle. The store backend (`Type`) may be `mysql` or `sqlite`; both expose the identical CLL/get/verify/publish contract below, so the evaluation workflow does not depend on which is configured. A dataset backfilled into a local `sqlite` store is enumerated and verified exactly like any other profile.
@@ -15,7 +15,7 @@ Read `StoreID`, `Namespace` and `LogID` to freeze the target; `ReadOnly` describ
 ## Enumerate
 
 ```sh
-./bin/capsule cll list --profile NAME --after AFTER --through THROUGH --limit 1000
+capsulectl cll list --profile NAME --after AFTER --through THROUGH --limit 1000
 ```
 
 AFTER is exclusive, THROUGH inclusive. Omit through for discovery. Result fields: entries (sequence, capsule_id, appended_at), next_after, log_id, store_id. Default limit 100; maximum 1000. next_after is a cursor, not has_more. Preserve through across pages. Stop at through or an empty page; reject non-advancing cursors on nonempty pages. Account for every entry even when excluded from evaluation.
@@ -27,9 +27,9 @@ Migration appends can make old investigations appear in a recent append-time win
 ## Retrieve and verify
 
 ```sh
-./bin/capsule get --profile NAME --capsule-id ID
-./bin/capsule get --profile NAME --capsule-id ID --raw --output RECORD.json
-./bin/capsule verify --profile NAME --capsule RECORD.json
+capsulectl get --profile NAME --capsule-id ID
+capsulectl get --profile NAME --capsule-id ID --raw --output RECORD.json
+capsulectl verify --profile NAME --capsule RECORD.json
 ```
 
 Readable get exposes capsule_id, capsule, producer_envelope, artifacts at top level. JSON bytes become JSON values, text becomes strings, other bytes use {encoding:base64,data:...}. Artifacts are unordered: select by name, never index. Keep binding, state, content_sha256. An unbound artifact is not authenticated simply because it was stored beside a Capsule.
@@ -39,7 +39,7 @@ Raw --output is an exact SDK record usable by verify; readable JSON must not be 
 ## Publish
 
 ```sh
-./bin/capsule publish --profile NAME --request REQUEST.json
+capsulectl publish --profile NAME --request REQUEST.json
 ```
 
 Requires writable profile, signing configuration, trusted producer keys and initialized artifact/CLL facilities. Do not initialize production storage during evaluation. Do not treat changing ReadOnly as granting SQL privileges or adding a signing key.

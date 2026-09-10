@@ -41,7 +41,7 @@ Each judgment has `axis_id`, `status`, `rationale` and `evidence_ids`. Status is
 
 Prepare a new `capsule-seal-request/v1` request for this evaluation as specified in `capsule-cli.md`. AAC digest inputs reject floating-point numbers: encode decimal metadata such as model costs as decimal strings. Use the new evaluation identity for the action ID and record the report and exact request before publication.
 
-Call `capsule publish`. Within this execution, retry only the same frozen request, signer and target; do not change timestamps after an uncertain append. No journal or historical-request reconstruction is needed.
+Call `capsulectl publish`. Within this execution, retry only the same frozen request, signer and target; do not change timestamps after an uncertain append. No journal or historical-request reconstruction is needed.
 
 Get the returned evaluation Capsule, verify its identity/signature/trust and bound payload, and compare the payload against this run's request. Read its returned sequence from the target CLL and confirm Capsule ID, store and log. Capsule verification alone does not prove CLL inclusion or business truth. Preserve previous evaluations as history, but do not use them to supply this run's outcomes.
 

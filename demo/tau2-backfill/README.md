@@ -9,16 +9,18 @@ agent run, no user simulator, no model/LLM API key, and nothing is synthesized.
 It has exactly two arguments:
 
 ```sh
-RES=~/GitHub/tau2-bench/data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json
+DEMO=~/.local/share/evaluation-runs/tau2-airline-eval
+RES=~/GitHub/tau2-bench/data/tau2/results/final/claude-3-7-sonnet-20250219_airline_default_gpt-4.1-2025-04-14_4trials.json
 python3 backfill.py --results "$RES" --out "$DEMO/backfill"
 ```
 
 It writes **one request per task — that task's trial-0 run** — named
-`task-<id>.json` (task ids are sanitized for the filesystem; the retail file
-yields 114). Publish them all with a loop:
+`task-<id>.json` (task ids are sanitized for the filesystem; the airline file
+yields 50, the retail file 114). Publish them all into a profile you have already
+created (see [demo/DEMO.md](../DEMO.md) for creating the `airlinedemo` profile):
 
 ```sh
-for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile tau2demo --request "$f"; done
+for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile airlinedemo --request "$f"; done
 ```
 
 The domain is read from the results file (`environment_info.domain_name`). The

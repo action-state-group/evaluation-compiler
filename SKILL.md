@@ -14,7 +14,7 @@ Start from the **value proposition**. The user leads with what should improve an
 
 Resolve (derive first; ask only for what is missing and material):
 - The scenario and evaluation unit: which individual outcome is evaluated (usually implied by the value proposition and the source)?
-- Desired-outcome authority: declared task criteria or independent evidence; what establishes success, and what was knowable at execution time?
+- Desired-outcome authority: declared task criteria or independent evidence; what establishes success, and what was knowable at execution time? The desired outcome is always sourced **independently of the interaction record** — declared criteria read from the dataset/spec by case id, or evidence gathered from an external system at eval time — in a context blind to the agent's transcript. The interaction Capsule carries only the agent outcome and case identity, never the desired-outcome criteria. This holds whether the interactions were backfilled or already in a CLL the user provided.
 - Agent-outcome source: where the actual answer or action is recorded and how it is authenticated.
 - Access: for CLL, the named Capsule CLI profile. Do not ask for database credentials or a caller-written adapter. Discover existing access to external evidence separately; a storage profile does not grant GitHub access.
 - Judgment policy: observable axes, applicability, insufficient-evidence behavior and aggregation.
@@ -39,10 +39,10 @@ Create only these resources:
 - `SKILL.md`: scenario purpose, accepted runtime inputs and actionable execution steps. The host agent performs selection, verification, independent extraction, judging and publication; do not delegate that workflow to a custom program.
 - `axes.json`: each axis's ID, link to the value proposition, applicability, required evidence, pass/fail boundaries, missing-evidence behavior and role.
 - `resolved-spec.json`: the resolved scenario, evaluation unit, target and aggregation policies, source/reference locations, required and optional runtime inputs, and honest limitations. This is compiler output, not user homework.
-- `references/source.md`: observed source semantics, case/run identity, exact original-content bindings and independent evidence access. Do not invent mappings. For a dataset backfilled into the CLL, document the mapping from dataset record to Capsule artifacts/bindings so the same get/verify path applies.
+- `references/source.md`: observed source semantics, case/run identity, exact original-content bindings and independent evidence access. Do not invent mappings. For a dataset backfilled into the CLL, document the mapping from dataset record to Capsule artifacts/bindings so the same get/verify path applies: bind only the interaction (the agent's transcript/actions) and the case identity — **never** the declared success criteria or the native score. Those are the desired outcome; the evaluator reads them from the dataset/spec by case id at judge time, transcript-blind, so isolation holds. This is identical whether the interactions were backfilled or already in a CLL the user provided — the interaction Capsule never carries the criteria. Record where the declared criteria live (path and key) and the case-id join, so the generated skill resolves them itself and never has to ask where the criteria are.
 - `references/execution.md`: adapt [execution.md](assets/execution.md) to the scenario without weakening independence or verification.
 - `references/capsule-cli.md`: the CLI contract, copied from this compiler's reference.
-- `bin/capsule`: the compatible CLI executable when distributing a self-contained bundle. This is the only program in the bundle; configuration and credentials stay on the execution host.
+The bundle contains no executable. `capsulectl` is a prerequisite installed on the execution host and on `PATH` — invoked as `capsulectl`, never copied into the bundle; configuration and credentials stay on the host.
 
 Compilation produces the bundle and nothing else. The compiler does not create Capsule CLI profiles, stand up or initialize a CLL, backfill a dataset, or publish — and it does not investigate how to do those things (no `profile create`/`profile show`, no store init, no backfill run). It records the named profile as a runtime input in `resolved-spec.json` and the generated evaluator and aggregator skills, so they know which profile to read; it neither creates nor validates that profile. Creating the profile and backfilling a native benchmark into a CLL are separate operator prep steps performed outside the compiler; the bundle's `source.md` documents the dataset→Capsule mapping so those steps and the generated skill agree.
 
@@ -51,7 +51,7 @@ Use outcome-linked axes, not an output-feature checklist. Separate desired and a
 When `cross_case_aggregation` is not `none`, also generate a separate aggregation bundle (e.g. `<scenario>-aggregate/`) whose host agent reduces completed reports rather than judging. It reuses the same `axes.json` and `resolved-spec.json` by reference — do not regenerate or fork the axes — and its resources are:
 - `SKILL.md`: the aggregation purpose, the runtime inputs (profile and a report range or append-time window), and the reduce-then-publish steps.
 - `references/aggregation.md`: adapt [aggregation.md](assets/aggregation.md) to the scenario and the resolved `cross_case_aggregation` policy, without weakening report verification or the reports-only input rule.
-- `references/capsule-cli.md` and `bin/capsule`: copied as for the per-case bundle.
+- `references/capsule-cli.md`: copied as for the per-case bundle (`capsulectl` stays a host prerequisite, not bundled).
 The aggregation skill selects `evaluation-report/v1` Capsules over the range, verifies each, reduces their axis judgments across cases, and publishes one `evaluation-summary/v1` Capsule back into the same CLL. It never re-judges, re-opens source interactions, or imports raw source outcomes.
 
 ## Exercise the generated skill (only against a CLL that already exists)

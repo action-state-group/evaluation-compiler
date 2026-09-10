@@ -6,11 +6,13 @@ theme: default
 ---
 
 <!--
-Render:  npx @marp-team/marp-cli@latest slides/demo-deck.md -o demo-deck.html
+Render (from repo root):  npx @marp-team/marp-cli@latest demo/slides/demo-deck.md -o demo-deck.html
          (--pdf, or --pptx for PowerPoint; --pptx-editable needs LibreOffice/soffice)
-Live demo: run the fenced commands top-to-bottom in ONE terminal; shell variables
-(TAU2, EC, DEMO, …) persist across the blocks. Every command here is copy-paste
-from DEMO.md and has been run verbatim.
+Live demo: run the fenced commands in ONE terminal; shell variables (TAU2, EC, DEMO,
+…) persist across the blocks. Two exceptions to top-to-bottom: B3 is presenter-driven
+(an agent step, not a shell command), and the checkpoint slides are alternatives —
+the offline checkpoint and the witnessed checkpoint are two paths at the same MMR size,
+so run one, not both. Commands are copy-paste from DEMO.md.
 -->
 
 # Provable agent evaluation
@@ -41,7 +43,8 @@ Two demos:
   **aggregation skill** that reduces those reports into one
   `evaluation-summary/v1` Capsule.
 
-*Source of truth is the CLL; every input and output is signed and re-verifiable.*
+*The interaction and the evaluation-report Capsules are signed and re-verifiable; the
+desired outcome is sourced independently and its provenance recorded in the report.*
 
 ---
 
@@ -69,8 +72,8 @@ contexts**; the judge never conflates "what should happen" with "what the agent 
 
 ## Setup 1/3 — toolchain (start from nothing)
 
-Need **git**, **Go 1.27+** (the CLI's `go.mod` floor; Go 1.21+ also works — it
-auto-fetches the pinned toolchain), **python3** (stdlib only — to read JSON output).
+Need **git**, **Go 1.21+** with toolchain auto-download (the default; it fetches the
+CLI's pinned toolchain, currently 1.27), **python3** (stdlib only — to read JSON output).
 Run in one terminal.
 
 ```sh
@@ -253,7 +256,9 @@ capsulectl verify --profile airlinedemo --capsule rec.json
 ```
 
 `verify` re-checks the content-address, the Ed25519 producer signature, and that
-the bound `payload` matches its `agent_input_digest` — offline, no trust in us.
+the bound `payload` matches its `agent_input_digest` — offline. Detecting change
+against a `capsule_id` you already trust needs no key; authorship is checked against
+the trusted key you pin.
 
 ---
 
@@ -332,7 +337,7 @@ across all tasks?"* — the **cross-case** roll-up.
 - Re-aggregate any subset without re-judging; the contributing report ids are recorded.
 
 *50 report Capsules → 1 summary Capsule.* (Judging all 50 airline tasks is 50 runs;
-reports land at seqs 51–100, so the summary aggregates that range.)
+reports are selected by type + axes digest + cohort, not a fixed seq window.)
 
 ---
 
@@ -404,8 +409,9 @@ curl -s https://witness.agentactioncapsule.org/checkpoints/tau2-airline-20260910
 #       "key_id":"<this log's checkpoint key, != the authority key 39bb654c…>"}
 
 # 2. re-verify the LOCAL checkpoint offline (reuse $STMT from the single create — no re-create)
-python3 -c 'import json,sys;open("/tmp/proof.json","w").write(json.dumps({"checkpoint":sys.argv[1]}))' "$STMT"
-capsulectl cll verify --profile airlinedemo --proof /tmp/proof.json
+mkdir -p "$DEMO/run"
+python3 -c 'import json,sys;open(sys.argv[1],"w").write(json.dumps({"checkpoint":sys.argv[2]}))' "$DEMO/run/proof.json" "$STMT"
+capsulectl cll verify --profile airlinedemo --proof "$DEMO/run/proof.json"
 #   -> checkpoint_signature_and_trust=passed, embedded_consistency=passed, log_id=passed
 ```
 
@@ -418,9 +424,14 @@ is. `GET /v1/inclusion/{capsule_id}` is the direct-register surface and 404s a C
 
 ## Verify a Capsule — and catch tampering  *(live)*
 
-Content-addressed + **bound** payload → offline verify, no trust in the producer.
+Content-addressed + **bound** payload → offline verify. Recomputing digests against a
+**pinned `capsule_id`** catches change with no key; a self-consistent forgery (id
+recomputed too), or confirming **who** signed it, needs the pinned trusted key.
 
 ```sh
+# re-select the seq-1 Capsule (independent of whether B3 ran)
+ID=$(capsulectl cll list --profile airlinedemo --after 0 --through 1 \
+     | python3 -c 'import sys,json;print(json.load(sys.stdin)["entries"][0]["capsule_id"])')
 capsulectl get    --profile airlinedemo --capsule-id "$ID" --raw --output rec.json
 capsulectl verify --profile airlinedemo --capsule rec.json          # exit 0
 # -> capsule_identity=passed, producer_signature_and_trust=passed,
@@ -440,8 +451,9 @@ capsulectl verify --profile airlinedemo --capsule tampered.json     # exit 1
 ```
 
 The recomputed payload digest ≠ the committed `agent_input_digest` / `capsule_id`, so
-verify **fails**. A buyer re-verifies a shared evaluation-report Capsule the same way —
-offline, trusting no one.
+verify **fails** (the forger here left `capsule_id` untouched). A buyer detects change
+against a `capsule_id` they trust — offline, no key — and confirms **authorship**
+(and catches a fully re-signed forgery) against a producer key they independently trust.
 
 ---
 
@@ -466,8 +478,10 @@ Capsule `cbcb24e9…` (seq 169); judgments `uncertainty_reduction=pass`,
   backfilled into a CLL (B).
 - Axes are **compiled from the value proposition**, not a hand-checklist and not
   the benchmark's native score.
-- Every artifact — source interaction, desired/agent outcome, judgment — is a
-  **signed, content-addressed Capsule** in a checkpointable CLL.
+- The **source interaction** and the **evaluation report** are signed,
+  content-addressed Capsules in a checkpointable CLL; the desired/agent outcomes and
+  judgments are fields inside the report Capsule, and the desired truth is sourced
+  independently (its provenance recorded, not necessarily signed).
 - The evaluation report **verifies offline** and can be **witnessed** on a public
   transparency log.
 

@@ -107,7 +107,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--results", required=True, type=pathlib.Path,
                     help="a tau2 results file (data/tau2/results/final/*.json)")
     ap.add_argument("--out", required=True, type=pathlib.Path,
-                    help="output directory; one seal request per simulation")
+                    help="output directory; one seal request per task (its trial-0 run)")
     args = ap.parse_args(argv)
 
     data = json.loads(args.results.read_text())
@@ -125,6 +125,12 @@ def main(argv: list[str]) -> int:
         raise SystemExit(f"{args.results} has no trial-0 simulations")
 
     args.out.mkdir(parents=True, exist_ok=True)
+    # clear our own prior outputs so a reused dir can't leak a different/smaller run
+    for stale in args.out.glob("task-*.json"):
+        stale.unlink()
+    # NOTE: CLL sequence is set by the publish order, which is the shell glob over these
+    # filenames (lexical: task-0, task-1, task-10, …, task-2), not task_id order. Only a
+    # per-case selection (by capsule/case id) is reliable; do not assume sequence == task.
     used: dict[str, int] = {}
     for sim in sorted(trial0, key=lambda s: str(s["task_id"])):
         request = build_request(sim, info, args.results.name, domain)
