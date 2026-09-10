@@ -162,9 +162,17 @@ form above needs no manual digest computation.)
    `evaluation-report/v1` Capsule at **sequence 115** (one past the 114 backfilled
    entries) — identical commands to Demo A, only the profile differs.
 
-B3 describes the compiler run; unlike B1/B2 it has not yet been executed against
-these real trajectories, so no evaluation Capsule id or judgments are pinned.
-Retrieve the evaluation Capsule the same way as any capsule:
+**Actual result of the validated run** (`run-20260910T170818Z`, task 1 / trial 0,
+the seq-2 source `2daa93d9…`): the desired outcome, agent outcome and judge ran in
+three isolated contexts. The customer wanted the keyboard exchanged to a
+clicky/RGB/full-size variant and the thermostat to a Google-Home model, with a
+declared fallback to exchange only the thermostat if no such keyboard exists. No
+matching keyboard was available, so the agent correctly took the fallback branch,
+confirmed before mutating, and exchanged only the thermostat. Judgments
+`request_resolution=pass`, `effort_and_containment=pass`, `communication_clarity=pass`,
+`aggregate=null`; new `evaluation-report/v1` Capsule `c308ebed…` at CLL **sequence
+115**, payload verified identical on readback. Retrieve it the same way as any
+capsule:
 
 ```sh
 capsulectl cll list --profile tau2demo --after 114 --through 115
@@ -175,6 +183,31 @@ capsulectl get --profile tau2demo --capsule-id "$ID"
 The judged system here is the shipped `claude-3-7-sonnet` retail run (user
 simulator `gpt-4.1`); point `--results` at another tau2 results file to evaluate
 a different system.
+
+### B4. Aggregate across cases (cross-case roll-up)
+
+B3 publishes one report per case (`aggregate:null` — the *within-case* roll-up).
+A benchmark story also wants the *cross-case* roll-up: how the system did across
+many tasks. That is a separate compiler output, generated only when
+`cross_case_aggregation` is not `none`: a second **aggregation skill** whose input is
+the `evaluation-report/v1` Capsules (never the source interactions). It selects the
+report range, verifies each report, reduces their `axis_judgments` across cases
+(per-axis pass/fail/unjudgeable counts and pass rate; the `all_required` or `native`
+overall), and publishes one `evaluation-summary/v1` Capsule back into the same CLL —
+itself signed, checkpointable and witnessable.
+
+```sh
+# presenter-driven: compile with cross_case_aggregation=rate, then run the generated
+# aggregation skill over the report range (reports follow the 114 case entries,
+# so a full 114-case run lands at seqs 115-228)
+capsulectl cll list --profile tau2demo --after 114 --through 228   # the evaluation reports
+# the aggregation skill: verify each report, reduce axis judgments, publish one
+#   evaluation-summary/v1 Capsule; read it back like any capsule
+```
+
+Aggregating all 114 retail tasks means 114 per-case judge runs first; the validated
+run here judged one case (seq 115). The aggregation skill reduces whatever reports
+exist, so a subset is a valid summary as long as its contributing set is recorded.
 
 ---
 
@@ -199,7 +232,7 @@ CPUB=$(capsulectl key generate --output "$CKEY" \
 capsulectl profile update --profile tau2demo \
   --checkpoint-signing-key-file "$CKEY" --checkpoint-trusted-key "$CPUB"
 
-capsulectl cll checkpoint create --profile tau2demo
+CP=$(capsulectl cll checkpoint create --profile tau2demo); echo "$CP"
 # after B1+B2 (114 entries): {"checkpoint":224,"indexed_sequence":114,"statement":"<base64 COSE>", ...}
 # checkpoint is the MMR size, not the entry count; running B3 appends sequence 115 and makes it 225 / 115.
 ```
@@ -209,7 +242,7 @@ checkpoint over the current MMR and stores it; no network, no witness. Verify it
 offline (optionally with a Capsule inclusion proof):
 
 ```sh
-STMT=$(capsulectl cll checkpoint create --profile tau2demo | python3 -c "import sys,json;print(json.load(sys.stdin)['statement'])")
+STMT=$(echo "$CP" | python3 -c "import sys,json;print(json.load(sys.stdin)['statement'])")   # reuse the create above
 python3 -c "import json;open('/tmp/proof.json','w').write(json.dumps({'checkpoint':'$STMT'}))"
 capsulectl cll verify --profile tau2demo --proof /tmp/proof.json
 # -> checkpoint_signature_and_trust=passed, log_id=passed, embedded_consistency=passed
@@ -224,23 +257,36 @@ unauthenticated for a non-enrolled `log_id` (no token). Resolve its authority ke
 and add the endpoint + key to the profile:
 
 ```sh
-# authority key is published at /.well-known/did.json (publicKeyJwk.x, base64url -> hex)
+# resolve the witness authority public key (do not trust a hardcoded copy blindly)
+curl -s https://witness.agentactioncapsule.org/anchor/authority-pubkey
+# -> {"pubkey_hex":"39bb654c9dc0afe1c0edef0deffaa69099b8518836c9ba26e0491535840f96b5","key_id":"19a9ab3e02fad55c"}
+# same key at /.well-known/did.json as publicKeyJwk.x (base64url) = ObtlTJ3Ar-HA7e8N7_qmkJm4UYg2ybom4EkVNYQPlrU
+
 capsulectl profile update --profile tau2demo \
   --checkpoint-endpoint https://witness.agentactioncapsule.org \
   --checkpoint-public-key 39bb654c9dc0afe1c0edef0deffaa69099b8518836c9ba26e0491535840f96b5
 ```
 
-(As of this writing the witness `key_id` is `19a9ab3e02fad55c`; re-resolve from
+The pinned authority public key is
+`39bb654c9dc0afe1c0edef0deffaa69099b8518836c9ba26e0491535840f96b5` (`key_id`
+`19a9ab3e02fad55c`); re-resolve from `/anchor/authority-pubkey` or
 `/.well-known/did.json` if it rotates. For an *enrolled* production log, e.g.
-`alchemy`, set the same three `checkpoint.*` fields with your enrolled key.)
+`alchemy`, set the same checkpoint endpoint and public-key fields here with your
+enrolled witness key (alongside the checkpoint signing/trusted keys from C1).
 
 ### C3. Publish the checkpoint to the witness and check status
 
-Configure the endpoint (C2) **before** `create`, so `create` enqueues a witness
-delivery; then deliver by MMR size:
+A witness delivery is enqueued only by the **first `create` at a given MMR size
+after the endpoint is configured**. C1 already created a checkpoint offline at the
+114-entry size (224); so to witness, either target a *fresh* size — in this demo B3
+appended seq 115, making size 225 new — or, if the size you want was already created
+offline, append one more entry (`cll append`, or run B3) before this `create`.
+With the endpoint configured (C2) and a fresh size, deliver by MMR size:
 
 ```sh
-SIZE=$(capsulectl cll checkpoint create --profile tau2demo | python3 -c "import sys,json;print(json.load(sys.stdin)['checkpoint'])")
+CP=$(capsulectl cll checkpoint create --profile tau2demo)   # the only create at this size
+SIZE=$(echo "$CP" | python3 -c "import sys,json;print(json.load(sys.stdin)['checkpoint'])")
+STMT=$(echo "$CP" | python3 -c "import sys,json;print(json.load(sys.stdin)['statement'])")   # reused in C4
 capsulectl cll checkpoint publish --profile tau2demo --checkpoint "$SIZE"
 # -> {"state":"verified","receipt":{...}}   (pending/failed otherwise)
 capsulectl cll checkpoint status  --profile tau2demo --checkpoint "$SIZE"
@@ -254,7 +300,51 @@ from C2 and stores it. `status` re-verifies the STORED receipt locally and makes
 network call. Note: `publish` appends to the live, append-only public transparency
 log.
 
-### C4. Query the witness endpoint directly
+**Actual result of the executed publish** (this demo's 115-entry CLL): checkpoint
+**225 / indexed 115** was delivered to the live witness and returned
+`state=verified`. The witness countersigned it at global tree position
+`leaf_index=1062`, `tree_size=1063` (its authority `key_id=19a9ab3e02fad55c`), and
+the CLI verified that receipt against the authority key from C2 before storing it.
+
+### C4. Fetch the witness record; re-verify the local checkpoint offline
+
+The witness anchors the **checkpoint (the log's MMR root)**, not individual
+Capsules. The witness *receipt* was already cryptographically verified against the
+authority key during `publish`/`status` (C3). Here you fetch the witness's public
+record of the checkpoint and independently re-verify the **local** checkpoint
+statement offline (this step checks the local checkpoint's signature/trust/
+consistency, not the fetched receipt):
+
+```sh
+LOG=tau2-retail-20260909
+# the witness's countersigned checkpoint(s) for this log (this curl only prints it)
+curl -s "https://witness.agentactioncapsule.org/checkpoints/$LOG"
+# -> {"log_id":"tau2-retail-20260909","mmr_size":225,"prev_size":224,
+#     "root":"45476a60b940a88d1595c7a440b79374e9a7a32ccc8fb280ff5e4325ed75c693",
+#     "prev_root":"e9698ea2144dded92742502d39c06ba0de24dbf98abdbd00199c2291cbbb1ea3",
+#     "key_id":"02698f0b010cfe504df82c375c0a226f92cd8128fb5d3d72ea3aed4282129cc5",
+#     "receipt_b64":"0oRHogEnGQGLAaEZAYyhIIFYkIMZBCcZBCaE…",  # COSE receipt (truncated: ~180 B)
+#     "leaf_index":1062,"tree_size":1063,"equivocations":[]}
+#   mmr_size/prev_size match the local checkpoint; key_id is THIS log's checkpoint
+#   signing key (02698f0b…), distinct from the witness authority key (39bb654c…).
+
+# verify the checkpoint offline against the trusted checkpoint key (no network).
+# Reuse $STMT captured from the single C3 create above — do not re-create at this size.
+python3 -c "import json,sys;open('/tmp/proof.json','w').write(json.dumps({'checkpoint':sys.argv[1]}))" "$STMT"
+capsulectl cll verify --profile tau2demo --proof /tmp/proof.json
+# -> checkpoint_signature_and_trust=passed, embedded_consistency=passed, log_id=passed
+#    inclusion=not_performed (exit 3, partial): this CLI build has no per-Capsule
+#    audit-path emitter, so a single Capsule's inclusion against the checkpointed
+#    root is not proven here — the checkpoint (hence the whole MMR) is.
+```
+
+The witness `root` is the bagged MMR root; the local checkpoint `statement` carries
+the raw peaks and the 224→225 consistency proof (which `embedded_consistency`
+checks). The `GET /v1/inclusion/{capsule_id}` route is for statements registered
+directly to the transparency log, not for CLL-checkpoint capsules, so it returns
+`not found` for a `tau2demo` Capsule id.
+
+### C5. Query the witness endpoint directly
 
 ```sh
 curl -s https://witness.agentactioncapsule.org/health        # {"ok":true,"key_id":...,"tree_size":...,"latest_root_hash":...}
@@ -263,13 +353,15 @@ curl -s https://witness.agentactioncapsule.org/.well-known/did.json   # authorit
 ```
 
 Network vs local: `create` (C1) and `status` (C3) are local — only `publish` (C3)
-and the curls (C4) contact the witness. `status`/`publish` both require the endpoint
-configured (they derive the service id from it) and error with "checkpoint service
-not configured" if it is unset, but only `publish` sends bytes over the network.
+and the curls (C4/C5) contact the witness. `status`/`publish` both require the
+endpoint configured (they derive the service id from it) and error with "checkpoint
+service not configured" if it is unset, but only `publish` sends bytes over the
+network.
 
-Executed vs documented: C1 (local checkpoint + offline `cll verify`) and C4 (the
-`/health` and `/.well-known/did.json` queries) were run here; C2/C3 (adding the
-endpoint and delivering to the live witness) are the documented procedure and were
-not submitted to the production log in this demo. If a checkpoint at the current
-MMR size already exists locally (from C1), append/observe a new entry before the
-C3 `create` so a witness delivery is enqueued for the just-configured service.
+Executed here: C1–C5 were all run against this demo's CLL, including delivering
+checkpoint 225/115 to the **live** production witness (C3, `state=verified`, the
+receipt verified against the authority key) and fetching the witness record plus
+offline-re-verifying the local checkpoint (C4). Because `publish`
+appends to a public, append-only log, only run it when you intend a permanent
+public record. If a checkpoint at the current MMR size already exists locally,
+append/observe a new entry before `create` so a fresh witness delivery is enqueued.

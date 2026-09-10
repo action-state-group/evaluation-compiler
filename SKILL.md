@@ -23,7 +23,9 @@ If access is missing from the request, explicitly resolve it during intake. Obta
 
 Selection belongs to execution, not compilation. A CLL-backed skill accepts a profile name and either an exclusive/inclusive sequence range `(after, through]` or an append-time window such as the last seven days. Never hardcode the experiment's profile, IDs, range, dates, secrets or machine paths into a reusable bundle.
 
-`target_mode` is `evidence_derived` or `declared`. `aggregation` is `none`, `all_required` or `native`. Default to `none` unless aggregation is requested and justified. `native` requires the benchmark's existing scoring contract; preserve its task/trial/reward semantics rather than inventing a replacement score. A benchmark's trials originate outside CLL and are backfilled into it before evaluation.
+`target_mode` is `evidence_derived` or `declared`. `aggregation` is `none`, `all_required` or `native`; it is the **within-case** roll-up across a single run's axes and sets each report's `aggregate`. Default to `none` unless aggregation is requested and justified. `native` requires the benchmark's existing scoring contract; preserve its task/trial/reward semantics rather than inventing a replacement score. A benchmark's trials originate outside CLL and are backfilled into it before evaluation.
+
+`cross_case_aggregation` is a separate, **cross-case** policy — `none` (default), `rate`, `all_required` or `native` — for rolling up many evaluated cases (e.g. a benchmark's pass rate across tasks). Set it only when a roll-up across cases is requested and justified. When it is not `none`, the compiler additionally generates an aggregation skill bundle (see below); the per-case skill is unchanged. Cross-case aggregation consumes the `evaluation-report/v1` Capsules the per-case skill produces, never the source interactions, so it presumes those reports already exist. It is independent of the within-case `aggregation`: `all_required` and `native` reduce from each report's `axis_judgments` (and recorded native result) directly, not from the report's within-case `aggregate`, so they work even when the per-case policy was `none`. `native` requires the per-case reports to record the benchmark's native result; if they do not, reject the `native` configuration rather than emit an undefined score.
 
 ## Generate the bundle
 
@@ -38,10 +40,18 @@ Create only these resources:
 
 Use outcome-linked axes, not an output-feature checklist. Separate desired and agent outcome records, with evidence IDs per claim. Do not claim that a proxy measures actual time saved or risk reduced.
 
+When `cross_case_aggregation` is not `none`, also generate a separate aggregation bundle (e.g. `<scenario>-aggregate/`) whose host agent reduces completed reports rather than judging. It reuses the same `axes.json` and `resolved-spec.json` by reference — do not regenerate or fork the axes — and its resources are:
+- `SKILL.md`: the aggregation purpose, the runtime inputs (profile and a report range or append-time window), and the reduce-then-publish steps.
+- `references/aggregation.md`: adapt [aggregation.md](assets/aggregation.md) to the scenario and the resolved `cross_case_aggregation` policy, without weakening report verification or the reports-only input rule.
+- `references/capsule-cli.md` and `bin/capsule`: copied as for the per-case bundle.
+The aggregation skill selects `evaluation-report/v1` Capsules over the range, verifies each, reduces their axis judgments across cases, and publishes one `evaluation-summary/v1` Capsule back into the same CLL. It never re-judges, re-opens source interactions, or imports raw source outcomes.
+
 ## Exercise the generated skill
 
 Run the generated SKILL.md using the host agent and CLI directly. Do not replace missing instructions with a bespoke runner. For Alchemy, exercise CLL selection, get/verify, separate outcome records, judging, report publication and readback. Keep private run results outside the compiler and bundle.
 
 Validate the compiler with a fresh evaluation under the newly generated bundle: acquire evidence, extract desired and agent outcomes independently, judge the current axes, create a new report and publish a new evaluation Capsule. Never substitute a previous evaluation report or its judgments for this execution. Record the actual bundle content digests in the report and distinguish missing evidence from execution errors.
+
+When an aggregation bundle was generated, exercise it too, after enough per-case reports exist: select the report range, verify each report, reduce the axis judgments across cases per `cross_case_aggregation`, and publish a new `evaluation-summary/v1` Capsule; read it back. Do not let aggregation re-run judging or substitute for a per-case validation.
 
 The compiler is the only editable source of evaluation instructions. Generated bundles are immutable outputs: fix this compiler or its references and assets, then regenerate the whole bundle. Never patch a generated skill or add historical-evaluation replay as a shortcut.
