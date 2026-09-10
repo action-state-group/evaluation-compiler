@@ -1,6 +1,6 @@
 # Capsule CLI contract
 
-Compatible implementation: capsule-cli commit b1cc1fe. The bundled executable is bin/capsule relative to the generated skill. Requires a configured profile on the execution host. No database credentials belong in prompts or bundles.
+Compatible implementation: capsule-cli with the MySQL and SQLite backends. The bundled executable is `bin/capsule` relative to the generated skill — a copy of the built CLI (installed on the host as `capsulectl`), kept under the fixed bundle-local name and always invoked by that relative path, so it never depends on or collides with anything on `PATH`. Requires a configured profile on the execution host. No database credentials belong in prompts or bundles.
 
 All successful stdout is a flat JSON object with spec_version=capsule-cli-result/v1. There is no result wrapper. Check process exit status before parsing; a JSON report does not imply success. Errors: 1 operational, 2 input, 3 partial verification, 4 publication pending, 5 conflict. Never suppress errors with an empty-list fallback.
 
