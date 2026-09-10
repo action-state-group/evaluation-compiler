@@ -95,14 +95,9 @@ rm -f "$DEMO"/store.db*                                             # the old SQ
 rm -rf "$DEMO"                                                      # keys/, backfill/, any prior run
 rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/capsule/profiles/tau2demo.yaml"
 mkdir -p "$DEMO/keys"
-# generate an ed25519 signer (seed hex -> key file; public hex -> trusted key)
-read SEED PUB < <(python3 -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization as s
-k=Ed25519PrivateKey.generate()
-print(k.private_bytes(s.Encoding.Raw,s.PrivateFormat.Raw,s.NoEncryption()).hex(),
-      k.public_key().public_bytes(s.Encoding.Raw,s.PublicFormat.Raw).hex())")
-printf '%s' "$SEED" > "$DEMO/keys/tau2.ed25519"; chmod 600 "$DEMO/keys/tau2.ed25519"
+# generate the producer signing key (CLI writes the seed file 0600; prints the public key)
+PUB=$(capsulectl key generate --output "$DEMO/keys/tau2.ed25519" \
+      | python3 -c 'import sys,json;print(json.load(sys.stdin)["public_key"])')
 
 capsulectl profile create --name tau2demo --type sqlite \
   --sqlite-path "$DEMO/store.db" \
@@ -198,13 +193,8 @@ key), and that key must be trusted:
 umask 077
 CKEY=~/.local/share/evaluation-runs/tau2-eval/keys/tau2-checkpoint.ed25519
 mkdir -p "$(dirname "$CKEY")"
-read CSEED CPUB < <(python3 -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization as s
-k=Ed25519PrivateKey.generate()
-print(k.private_bytes(s.Encoding.Raw,s.PrivateFormat.Raw,s.NoEncryption()).hex(),
-      k.public_key().public_bytes(s.Encoding.Raw,s.PublicFormat.Raw).hex())")
-printf '%s' "$CSEED" > "$CKEY"; chmod 600 "$CKEY"
+CPUB=$(capsulectl key generate --output "$CKEY" \
+       | python3 -c 'import sys,json;print(json.load(sys.stdin)["public_key"])')
 
 capsulectl profile update --profile tau2demo \
   --checkpoint-signing-key-file "$CKEY" --checkpoint-trusted-key "$CPUB"

@@ -63,17 +63,19 @@ never conflates "what should happen" with "what the agent did."
 
 ## Setup 1/3 — toolchain (start from nothing)
 
-Need **git**, **Go 1.2x+**, **python3 + `cryptography`**. Run in one terminal.
+Need **git**, **Go 1.27+** (the CLI's `go.mod` floor; Go 1.21+ also works — it
+auto-fetches the pinned toolchain), **python3** (stdlib only — to read JSON output).
+Run in one terminal.
 
 ```sh
 # macOS (Homebrew). Linux: apt/dnf install git golang python3; or https://go.dev/dl
 brew install go git python3
 
-python3 -m pip install --user cryptography          # used only to make an ed25519 key
-
 # make `go install` binaries findable on PATH (add this line to your shell profile)
 BIN="$(go env GOBIN)"; export PATH="$PATH:${BIN:-$(go env GOPATH)/bin}"
 ```
+
+No API key, no `pip install`: `capsulectl` generates the signing keys itself.
 
 ---
 
@@ -91,6 +93,9 @@ git -C tau2-bench sparse-checkout set --no-cone \
   /data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json \
   /data/tau2/domains/retail
 ```
+
+The two `action-state-group` repos must be **public** (or the audience needs
+access). `tau2-bench` is public.
 
 ---
 
@@ -136,13 +141,9 @@ rm -f "$DEMO"/store.db* ; rm -rf "$DEMO"
 rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/capsule/profiles/tau2demo.yaml"
 mkdir -p "$DEMO/keys"
 
-read SEED PUB < <(python3 -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization as s
-k=Ed25519PrivateKey.generate()
-print(k.private_bytes(s.Encoding.Raw,s.PrivateFormat.Raw,s.NoEncryption()).hex(),
-      k.public_key().public_bytes(s.Encoding.Raw,s.PublicFormat.Raw).hex())")
-printf '%s' "$SEED" > "$DEMO/keys/tau2.ed25519"; chmod 600 "$DEMO/keys/tau2.ed25519"
+# the CLI generates the signing key (writes the seed 0600; prints the public key)
+PUB=$(capsulectl key generate --output "$DEMO/keys/tau2.ed25519" \
+      | python3 -c 'import sys,json;print(json.load(sys.stdin)["public_key"])')
 
 capsulectl profile create --name tau2demo --type sqlite \
   --sqlite-path "$DEMO/store.db" \
@@ -194,7 +195,11 @@ the bound `payload` matches its `agent_input_digest` — offline, no trust in us
 
 ---
 
-## Demo B · B3 — compile axes & evaluate  *(you drive; agent-run)*
+## Demo B · B3 — compile axes & evaluate  *(presenter-driven, not copy-paste)*
+
+B3 is an **agent** step, not a shell command: it runs inside **Claude Code** with
+the `evaluation-compiler` skill (from that repo), which needs its own agent host
+and model access — so it is driven by the presenter, not pasted by the audience.
 
 1. Invoke the **evaluation-compiler** skill (value proposition + profile
    `tau2demo`) → generates `axes.json`, `references/source.md`, the skill bundle.
@@ -203,8 +208,10 @@ the bound `payload` matches its `agent_input_digest` — offline, no trust in us
    by `task_id`, extracts the **agent** outcome from the real transcript, judges
    the three axes, and **publishes an `evaluation-report/v1` Capsule at seq 115**.
 
+Only *after* B3 has run does seq 115 exist; then read the report back like any
+Capsule:
+
 ```sh
-# after B3 runs, read the evaluation report back like any Capsule
 capsulectl cll list --profile tau2demo --after 114 --through 115
 ID=$(capsulectl cll list --profile tau2demo --after 114 --through 115 \
      | python3 -c 'import sys,json;e=json.load(sys.stdin)["entries"];print(e[-1]["capsule_id"] if e else "")')
@@ -231,21 +238,17 @@ buyer can **verify offline**, no access to the vendor's systems.
 ## Checkpoint the CLL  *(live, offline — no witness)*
 
 ```sh
-umask 077
 CKEY="$DEMO/keys/tau2-checkpoint.ed25519"
-read CSEED CPUB < <(python3 -c "
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives import serialization as s
-k=Ed25519PrivateKey.generate()
-print(k.private_bytes(s.Encoding.Raw,s.PrivateFormat.Raw,s.NoEncryption()).hex(),
-      k.public_key().public_bytes(s.Encoding.Raw,s.PublicFormat.Raw).hex())")
-printf '%s' "$CSEED" > "$CKEY"; chmod 600 "$CKEY"
+CPUB=$(capsulectl key generate --output "$CKEY" \
+       | python3 -c 'import sys,json;print(json.load(sys.stdin)["public_key"])')
 
 capsulectl profile update --profile tau2demo \
   --checkpoint-signing-key-file "$CKEY" --checkpoint-trusted-key "$CPUB"
 capsulectl cll checkpoint create --profile tau2demo
-# after 114 entries: {"checkpoint":224,"indexed_sequence":114, "statement":"<COSE>"}
-# `checkpoint` is the MMR size, not the entry count.
+# with the 114 backfilled entries (B3 not run in the copy-paste path):
+#   {"checkpoint":224,"indexed_sequence":114, "statement":"<COSE>"}
+# `checkpoint` is the MMR size, not the entry count; if B3 has appended seq 115
+# it is 225 / 115 instead.
 ```
 
 ---
