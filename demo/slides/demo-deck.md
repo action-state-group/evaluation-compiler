@@ -92,12 +92,12 @@ mkdir -p ~/GitHub && cd ~/GitHub
 git clone https://github.com/action-state-group/capsule-cli.git
 git clone https://github.com/action-state-group/evaluation-compiler.git
 
-# tau2-bench is 1.8 GB fully; sparse-clone only what the demo reads (~30 MB)
+# tau2-bench is 1.8 GB fully; sparse-clone only what the demo reads (~20 MB)
 git clone --filter=blob:none --sparse --depth 1 \
   https://github.com/sierra-research/tau2-bench.git
 git -C tau2-bench sparse-checkout set --no-cone \
-  /data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json \
-  /data/tau2/domains/retail
+  /data/tau2/results/final/claude-3-7-sonnet-20250219_airline_default_gpt-4.1-2025-04-14_4trials.json \
+  /data/tau2/domains/airline
 ```
 
 The two `action-state-group` repos must be **public** (or the audience needs
@@ -125,6 +125,7 @@ no API key for the live path.
 tau2-bench ships **real recorded runs** (`data/tau2/results/final/*.json`) — an
 agent (claude-3-7-sonnet) against a user simulator (gpt-4.1). We **backfill**
 those real interactions into a local SQLite CLL, then evaluate exactly like A.
+This demo uses the **airline** domain (50 tasks).
 
 **Compiler input**
 - Value proposition: *"Give the customer a clear, empathetic service experience
@@ -132,8 +133,58 @@ those real interactions into a local SQLite CLL, then evaluate exactly like A.
 - `target_mode: declared` — desired outcome = the tau2 task scenario, read by
   `task_id`, never seeing the transcript. tau2's own reward is **not** used.
 
-**Generated axes (`aggregation: none`)**
+**Generated axes (`aggregation: none`)** — the compiler derives these from the value
+proposition; for this value prop they come out as, e.g.:
 1. `request_resolution` · 2. `effort_and_containment` · 3. `communication_clarity`
+
+---
+
+## Inside a tau2 results file
+
+```text
+results/final/…_airline_…_4trials.json
+├─ info           run metadata: agent llm, user-sim llm, domain, limits
+├─ tasks[50]      the SCENARIOS + gold
+│    id ───────────────────────────────────────────────┐ (join key)
+│    user_scenario.instructions{reason_for_call,…}      │ → declared desired outcome
+│    evaluation_criteria{actions[],nl_assertions[],…}   │ → tau2 gold (compiler ignores)
+└─ simulations[200 = 50 tasks × 4 trials]  the RECORDED RUNS
+     task_id ──────────────────────────────────────────┘  + trial  (unique per run)
+     messages[12–104]{role:assistant|user|tool, content, tool_calls[{name,arguments}]}  → transcript to judge
+     reward_info{reward, action_checks[], nl_assertions[], db_check}                     → tau2 native score
+```
+
+Backfill takes one trial-0 run per task → `payload.case{task_id}` +
+`payload.agent_interaction.messages`; the judge rejoins the dataset task by `task_id`.
+
+---
+
+## One recorded interaction (airline · task 3, trial 0)
+
+`simulations[task_id=3]` — 14 turns, backfilled verbatim into `agent_interaction.messages`:
+
+```text
+assistant  Hi! How can I help you today?
+user       I need to know exactly how many suitcases I'm allowed to bring on my flight…
+assistant  I'd be happy to help… To provide you with…            (asks for ID + confirmation)
+user       my user ID is anya_garcia_5901 and my confirmation number is JMO1MG…
+assistant  I'll check your reservation details right away.
+    ↳ get_reservation_details({"reservation_id":"JMO1MG"})
+tool       {reservation_id:"JMO1MG", cabin:"economy", passengers:[…×2], …}
+assistant  Now I'll check your user details to determine your membership level…
+    ↳ get_user_details({"user_id":"anya_garcia_5901"})
+tool       {name:{first_name:"Anya",…}, membership:"silver", …}
+assistant  Based on your reservation and membership status, here's your baggage allowance…
+user       I'm pretty sure I'm a Gold member, not Silver. Can you double-check…?
+assistant  I apologize… Let me double-check your membership status right away.
+    ↳ get_user_details({"user_id":"anya_garcia_5901"})
+tool       {…, membership:"silver", …}
+assistant  After checking again, I can confirm your status is Silver…
+user       Yes, please transfer me to a supervisor. Thank you. ###TRANSFER###
+```
+
+Multi-turn, tool-augmented; the agent held the correct **Silver** allowance under
+pressure. This whole exchange is the bound payload of one Capsule.
 
 ---
 
@@ -141,21 +192,26 @@ those real interactions into a local SQLite CLL, then evaluate exactly like A.
 
 ```sh
 umask 077
-DEMO=~/.local/share/evaluation-runs/tau2-eval
-# re-runnable: delete the old tau2 SQLite CLL and profile first
+DEMO=~/.local/share/evaluation-runs/tau2-airline-eval
+# re-runnable: delete the old airline SQLite CLL and profile first
 rm -f "$DEMO"/store.db* ; rm -rf "$DEMO"
-rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/capsule/profiles/tau2demo.yaml"
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/capsule/profiles/airlinedemo.yaml"
 mkdir -p "$DEMO/keys"
 
 # the CLI generates the signing key (writes the seed 0600; prints the public key)
-PUB=$(capsulectl key generate --output "$DEMO/keys/tau2.ed25519" \
+PUB=$(capsulectl key generate --output "$DEMO/keys/airline.ed25519" \
       | python3 -c 'import sys,json;print(json.load(sys.stdin)["public_key"])')
 
-capsulectl profile create --name tau2demo --type sqlite \
+capsulectl profile create --name airlinedemo --type sqlite \
   --sqlite-path "$DEMO/store.db" \
-  --namespace tau2 --log-id tau2-retail-20260909 \
-  --signing-key-file "$DEMO/keys/tau2.ed25519" --trusted-key "$PUB"
-capsulectl store init --profile tau2demo
+  --namespace tau2 --log-id tau2-airline-20260910 \
+  --signing-key-file "$DEMO/keys/airline.ed25519" --trusted-key "$PUB"
+capsulectl store init --profile airlinedemo
+
+# what got stored (safe to show: identity + backend + key-file PATHS, not the seed)
+cat "${XDG_CONFIG_HOME:-$HOME/.config}/capsule/profiles/airlinedemo.yaml"
+#   name/type/log_id/namespace · connection.database (store.db path)
+#   signing.file (path to the 0600 seed, NOT the secret) · trusted_keys (public)
 ```
 
 ---
@@ -165,33 +221,33 @@ capsulectl store init --profile tau2demo
 ```sh
 TAU2=~/GitHub/tau2-bench
 EC=~/GitHub/evaluation-compiler
-RES="$TAU2/data/tau2/results/final/claude-3-7-sonnet-20250219_retail_default_gpt-4.1-2025-04-14_4trials.json"
+RES="$TAU2/data/tau2/results/final/claude-3-7-sonnet-20250219_airline_default_gpt-4.1-2025-04-14_4trials.json"
 
-# one seal request per task (its trial-0 run) — 114 for retail
-python3 "$EC/tools/tau2-backfill/backfill.py" --results "$RES" --out "$DEMO/backfill"
+# one seal request per task (its trial-0 run) — 50 for airline
+python3 "$EC/demo/tau2-backfill/backfill.py" --results "$RES" --out "$DEMO/backfill"
 
 # publish each as one CLL entry
-for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile tau2demo --request "$f" >/dev/null; done
+for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile airlinedemo --request "$f" >/dev/null; done
 
-capsulectl cll list --profile tau2demo --after 0 --limit 1000 \
+capsulectl cll list --profile airlinedemo --after 0 --limit 1000 \
   | python3 -c 'import sys,json;print("CLL entries:",len(json.load(sys.stdin)["entries"]))'
 ```
 
-Expected: `wrote 114 seal requests …` → `CLL entries: 114`.
-Capsule IDs are content-addressed: **seq 1 = `e9fa572d…`** (task 0),
-**seq 2 = `2daa93d9…`** (task 1) — same with any signing key.
+Expected: `wrote 50 seal requests …` → `CLL entries: 50`.
+Capsule IDs are content-addressed: **seq 1 = `56b1f95f…`** (task 0),
+**seq 2 = `ec5b0c62…`** (task 1) — same with any signing key.
 
 ---
 
 ## Demo B · read one back — signed & verifiable  *(live)*
 
 ```sh
-# the seq-1 Capsule id (task 0)
-ID=$(capsulectl cll list --profile tau2demo --after 0 --through 1 \
+# the seq-1 Capsule id (task 0) — 56b1f95f…
+ID=$(capsulectl cll list --profile airlinedemo --after 0 --through 1 \
      | python3 -c 'import sys,json;print(json.load(sys.stdin)["entries"][0]["capsule_id"])')
 
-capsulectl get    --profile tau2demo --capsule-id "$ID" --raw --output rec.json
-capsulectl verify --profile tau2demo --capsule rec.json
+capsulectl get    --profile airlinedemo --capsule-id "$ID" --raw --output rec.json
+capsulectl verify --profile airlinedemo --capsule rec.json
 # identity + producer signature + payload binding all verify;
 # rec.json shows case / provenance / the real agent_interaction transcript
 ```
@@ -204,24 +260,25 @@ the bound `payload` matches its `agent_input_digest` — offline, no trust in us
 ## Demo B · B3 — compile axes & evaluate  *(presenter-driven, not copy-paste)*
 
 B3 is an **agent** step, not a shell command: it runs inside **Claude Code** with
-the `evaluation-compiler` skill (from that repo), which needs its own agent host
-and model access — so it is driven by the presenter, not pasted by the audience.
+the `evaluation-compiler` skill — presenter-driven, in a **fresh context**.
+Compilation is a short **dialog** (full script in `DEMO.md`):
 
-1. Invoke the **evaluation-compiler** skill (value proposition + profile
-   `tau2demo`) → generates `axes.json`, `references/source.md`, the skill bundle.
-2. Run the generated skill: `selection=(1,2]` → it verifies the seq-2 Capsule
-   (`2daa93d9…`, task 1), reads the **declared** desired outcome from the dataset
-   by `task_id`, extracts the **agent** outcome from the real transcript, judges
-   the three axes, and **publishes an `evaluation-report/v1` Capsule at seq 115**.
+1. **Compile** — you lead with the **value proposition**; the skill derives the
+   evaluation unit, target mode and axes, and asks only for what it can't infer
+   (mainly **access**: the `airlinedemo` CLL + the declared dataset). It generates
+   `axes.json`, `references/source.md`, the skill bundle.
+2. **Run the generated skill** — `selection=(1,2]` → verifies the seq-2 Capsule
+   (`ec5b0c62…`, task 1), reads the **declared** desired outcome by `task_id`,
+   extracts the **agent** outcome from the transcript in a separate context, judges
+   the axes, and **publishes an `evaluation-report/v1` Capsule at seq 51**.
 
-Only *after* B3 has run does seq 115 exist; then read the report back like any
-Capsule:
+Only *after* B3 has run does seq 51 exist; then read the report back like any Capsule:
 
 ```sh
-capsulectl cll list --profile tau2demo --after 114 --through 115
-ID=$(capsulectl cll list --profile tau2demo --after 114 --through 115 \
+capsulectl cll list --profile airlinedemo --after 50 --through 51
+ID=$(capsulectl cll list --profile airlinedemo --after 50 --through 51 \
      | python3 -c 'import sys,json;e=json.load(sys.stdin)["entries"];print(e[-1]["capsule_id"] if e else "")')
-capsulectl get --profile tau2demo --capsule-id "$ID"
+capsulectl get --profile airlinedemo --capsule-id "$ID"
 ```
 
 ---
@@ -241,24 +298,23 @@ buyer can **verify offline**, no access to the vendor's systems.
 
 ---
 
-## A real report — task 1, validated run
+## The report Prompt 2 produces (`evaluation-report/v1`)
 
-Source `2daa93d9…` (seq 2). Customer wants keyboard→clicky/RGB/full-size **and**
-thermostat→Google-Home, with a declared fallback: *only the thermostat if no such
-keyboard exists.* No matching keyboard was in stock → agent took the fallback,
-confirmed before mutating, exchanged only the thermostat.
+For the airline seq-2 case (`ec5b0c62…`, task 1), the generated skill judges each
+compiled axis against the real transcript and publishes one report:
 
 ```text
-axis_judgments (excerpt — full report is the bound payload of the Capsule):
-  request_resolution     = pass   honored the fallback branch
-                                   (no clicky/RGB/full-size keyboard → exchanged only the thermostat)
-  effort_and_containment = pass   single session; no email → adapted auth to name+zip
-  communication_clarity  = pass   restated the exchange, confirmed $13.46 refund, required "yes"
+axis_judgments (one entry per compiled axis; produced by running Prompt 2):
+  request_resolution     = pass | fail | unjudgeable   + rationale + evidence_ids
+  effort_and_containment = pass | fail | unjudgeable   + rationale + evidence_ids
+  communication_clarity  = pass | fail | unjudgeable   + rationale + evidence_ids
   aggregate              = null   (within-case aggregation: none)
 ```
 
-→ `evaluation-report/v1` Capsule **`c308ebed…` at seq 115**, payload verified
-identical on readback. Desired/agent/judge each ran in an **isolated context**.
+→ signed `evaluation-report/v1` Capsule at **seq 51**, verifiable offline;
+desired/agent/judge each run in an **isolated context**. Airline B3 is **not yet run**,
+so the statuses above are the report *shape*, not pinned values — **Demo A (Alchemy)**
+below is a pinned, real validated run of this exact pipeline.
 
 ---
 
@@ -275,28 +331,28 @@ across all tasks?"* — the **cross-case** roll-up.
   Capsule back into the CLL — itself signed, checkpointable, witnessable.
 - Re-aggregate any subset without re-judging; the contributing report ids are recorded.
 
-*114 report Capsules → 1 summary Capsule.* (Judging all 114 is 114 runs; the validated
-run here judged one, seq 115.)
+*50 report Capsules → 1 summary Capsule.* (Judging all 50 airline tasks is 50 runs;
+reports land at seqs 51–100, so the summary aggregates that range.)
 
 ---
 
 ## Checkpoint the CLL  *(live, offline — no witness)*
 
 ```sh
-CKEY="$DEMO/keys/tau2-checkpoint.ed25519"
+CKEY="$DEMO/keys/airline-checkpoint.ed25519"
 CPUB=$(capsulectl key generate --output "$CKEY" \
        | python3 -c 'import sys,json;print(json.load(sys.stdin)["public_key"])')
 
-capsulectl profile update --profile tau2demo \
+capsulectl profile update --profile airlinedemo \
   --checkpoint-signing-key-file "$CKEY" --checkpoint-trusted-key "$CPUB"
 
 # NO-WITNESS path: create is LOCAL only (no endpoint configured). To WITNESS the same
 # MMR size instead, SKIP this create — the next slide sets the endpoint FIRST, because a
 # delivery is enqueued only by the first create at a size after the endpoint is set.
-capsulectl cll checkpoint create --profile tau2demo
-# with the 114 backfilled entries (B3 not run in the copy-paste path):
-#   {"checkpoint":224,"indexed_sequence":114, "statement":"<COSE>"}
-# `checkpoint` is the MMR size, not the entry count; if B3 has appended seq 115 it is 225/115.
+capsulectl cll checkpoint create --profile airlinedemo
+# with the 50 backfilled entries: {"checkpoint":97,"indexed_sequence":50,"statement":"<COSE>"}
+# `checkpoint` is the MMR size (2*n - popcount(n)), not the entry count; if B3 has
+# appended seq 51 it is 98/51.
 ```
 
 *Offline vs witnessed are alternative paths for a given MMR size — don't create the same size twice.*
@@ -311,46 +367,45 @@ curl -s https://witness.agentactioncapsule.org/anchor/authority-pubkey
 # -> {"pubkey_hex":"39bb654c9dc0afe1c0edef0deffaa69099b8518836c9ba26e0491535840f96b5",
 #     "key_id":"19a9ab3e02fad55c"}
 
-capsulectl profile update --profile tau2demo \
+capsulectl profile update --profile airlinedemo \
   --checkpoint-endpoint https://witness.agentactioncapsule.org \
   --checkpoint-public-key 39bb654c9dc0afe1c0edef0deffaa69099b8518836c9ba26e0491535840f96b5
 
 # endpoint is now set; this must be the FIRST create at this MMR size (don't run the
 # offline create on the previous slide for the same size, or append an entry first)
-CP=$(capsulectl cll checkpoint create --profile tau2demo)          # the ONLY create at this size
+CP=$(capsulectl cll checkpoint create --profile airlinedemo)       # the ONLY create at this size
 SIZE=$(echo "$CP" | python3 -c 'import sys,json;print(json.load(sys.stdin)["checkpoint"])')
 STMT=$(echo "$CP" | python3 -c 'import sys,json;print(json.load(sys.stdin)["statement"])')   # reused next slide
-capsulectl cll checkpoint publish --profile tau2demo --checkpoint "$SIZE"   # -> {"state":"verified","receipt":{…}}
-capsulectl cll checkpoint status  --profile tau2demo --checkpoint "$SIZE"   # re-verifies stored receipt, offline
+capsulectl cll checkpoint publish --profile airlinedemo --checkpoint "$SIZE"   # -> {"state":"verified","receipt":{…}}
+capsulectl cll checkpoint status  --profile airlinedemo --checkpoint "$SIZE"   # re-verifies stored receipt, offline
 ```
 
-**Ran it live:** checkpoint **225/115** → `state=verified`, countersigned at witness
-`tree_size 1062→1063`. Size 225 was *fresh* — the seq-115 report advanced it past the
-offline 224 checkpoint. A delivery is enqueued only by the **first `create` at a size
-after the endpoint is set**; if you already checkpointed this size offline, append an
-entry first. `publish` appends to a public, append-only log — run it only when you mean it.
+**Not yet delivered for the airline log.** Only the offline checkpoint (MMR 97) was
+run here; `publish` above would append the airline checkpoint to the **live** public
+log — a permanent record, so run it deliberately. (The retail log *was* delivered live:
+`state=verified`, countersigned at witness `tree_size 1062→1063` — a pinned run in git
+history.) A delivery is enqueued only by the **first `create` at a size after the
+endpoint is set**, so target a fresh size (run B3 → seq 51 → MMR 98) or append an entry.
 
 ---
 
 ## Fetch the witness record; re-verify locally
 
-The witness *receipt* was already verified against the authority key at `publish`
-(prev slide). Here: fetch the witness's public record, and independently re-verify
+Once `publish` (prev slide) has run, the witness *receipt* is verified against the
+authority key. Here: fetch the witness's public record, and independently re-verify
 the **local** checkpoint offline.
 
 ```sh
-# 1. fetch the witness's countersigned checkpoint for this log (prints only)
-curl -s https://witness.agentactioncapsule.org/checkpoints/tau2-retail-20260909
-#   -> {"mmr_size":225,"prev_size":224,"tree_size":1063,"equivocations":[],
-#       "root":"45476a60b940a88d1595c7a440b79374e9a7a32ccc8fb280ff5e4325ed75c693",
-#       "receipt_b64":"0oRHogEnGQGLAaEZAYyhIIFYkIMZBCcZBCaE…",   # real COSE receipt
-#       "key_id":"02698f0b010cfe504df82c375c0a226f92cd8128fb5d3d72ea3aed4282129cc5"}
-#   key_id above = this log's checkpoint key; the receipt verifies against the
-#   witness authority key 39bb654c…f96b5 resolved on the previous slide.
+# 1. fetch the witness's countersigned checkpoint for this log (prints only).
+#    Populated after publish; shape (from the retail run) is:
+curl -s https://witness.agentactioncapsule.org/checkpoints/tau2-airline-20260910
+#   -> {"mmr_size":98,"prev_size":97,"tree_size":<n>,"equivocations":[],
+#       "root":"<hex>", "receipt_b64":"0oRH…",   # COSE receipt
+#       "key_id":"<this log's checkpoint key, != the authority key 39bb654c…>"}
 
 # 2. re-verify the LOCAL checkpoint offline (reuse $STMT from the single create — no re-create)
 python3 -c 'import json,sys;open("/tmp/proof.json","w").write(json.dumps({"checkpoint":sys.argv[1]}))' "$STMT"
-capsulectl cll verify --profile tau2demo --proof /tmp/proof.json
+capsulectl cll verify --profile airlinedemo --proof /tmp/proof.json
 #   -> checkpoint_signature_and_trust=passed, embedded_consistency=passed, log_id=passed
 ```
 
@@ -388,4 +443,4 @@ Capsule `cbcb24e9…` (seq 169); judgments `uncertainty_reduction=pass`,
   transparency log.
 
 Repos: `action-state-group/capsule-cli`, `action-state-group/evaluation-compiler`,
-`sierra-research/tau2-bench`. Full runnable script: `evaluation-compiler/DEMO.md`.
+`sierra-research/tau2-bench`. Full runnable script: `evaluation-compiler/demo/DEMO.md`.

@@ -23,18 +23,19 @@ way.
   into one `evaluation-summary/v1` Capsule, never re-judging.
 - [`references/capsule-cli.md`](references/capsule-cli.md) — the Capsule CLI contract
   copied verbatim into bundles.
-- [`DEMO.md`](DEMO.md) — end-to-end reproductions: an Alchemy investigation over an
-  existing CLL, and a tau2 customer-service evaluation over a local SQLite CLL
-  (create → backfill → compile → evaluate), plus CLL checkpointing and witnessing.
-- [`tools/tau2-backfill/`](tools/tau2-backfill/) — operator-side data-prep for Demo B:
-  maps shipped tau2 benchmark runs into seal requests. A repo tool, not bundle
-  material.
+- [`demo/`](demo/) — a self-contained demonstration, **not** compiler input. It holds
+  `demo/DEMO.md` (end-to-end reproductions: an Alchemy investigation over an existing
+  CLL, and a tau2 customer-service evaluation over a local SQLite CLL — create →
+  backfill → compile → evaluate — plus checkpointing and witnessing), `demo/slides/`,
+  and `demo/tau2-backfill/` (operator-side data-prep mapping shipped tau2 runs into
+  seal requests). The compiler ignores this folder when compiling.
 
 ## Boundaries
 
 The compiler is the only editable source of evaluation instructions. Generated
 bundles are immutable outputs — fix the compiler and regenerate, never patch a
 bundle. The host agent uses the Capsule CLI and ordinary tools; no helper programs,
-runners, or scripts are generated. Operator-side data-prep (e.g. `tools/`) may live
-in this repo but is never copied into a bundle: `assets/` and `references/` are the
+runners, or scripts are generated. Operator-side data-prep and demonstrations (the
+`demo/` folder) may live in this repo but are never copied into a bundle and are
+ignored during compilation: `assets/` and `references/` are the
 only bundle-source material.

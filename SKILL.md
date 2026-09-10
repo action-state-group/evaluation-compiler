@@ -10,16 +10,22 @@ The evaluation source is always a CLL of recorded interactions. A native benchma
 
 ## Resolve the user's intent
 
-Accept natural language. Derive the internal contract yourself; do not ask the user to write a spec. Use supplied examples and accessible sources before asking questions. Ask a small, focused question only when a material choice remains unresolved.
+Start from the **value proposition**. The user leads with what should improve and for whom; take that as the entry point and derive the rest of the contract yourself from it and any accessible context. The items below are your internal checklist, not a questionnaire — never open by asking the user to answer all of them. Resolve what you can, adopt a sensible default where one clearly exists, and then ask **one focused question at a time** for anything that remains genuinely unresolved and material, in a short back-and-forth. Do not ask the user to write a spec.
 
-Resolve:
-- The scenario, value proposition and evaluation unit: what should improve, for whom, and which individual outcome is evaluated?
+Resolve (derive first; ask only for what is missing and material):
+- The scenario and evaluation unit: which individual outcome is evaluated (usually implied by the value proposition and the source)?
 - Desired-outcome authority: declared task criteria or independent evidence; what establishes success, and what was knowable at execution time?
 - Agent-outcome source: where the actual answer or action is recorded and how it is authenticated.
 - Access: for CLL, the named Capsule CLI profile. Do not ask for database credentials or a caller-written adapter. Discover existing access to external evidence separately; a storage profile does not grant GitHub access.
 - Judgment policy: observable axes, applicability, insufficient-evidence behavior and aggregation.
 
+Access is the one input you usually cannot infer, so it is the most likely single question. Everything else — evaluation unit, target mode, axes, aggregation defaults — you normally derive from the value proposition and a quick look at the source.
+
 If access is missing from the request, explicitly resolve it during intake. Obtain CLI command/output semantics from [capsule-cli.md](references/capsule-cli.md). Inspect a representative source through the CLI when available, but do not mistake stored context or an agent-authored answer for independent truth.
+
+Ignore the `demo/` folder entirely when compiling. Everything under `demo/` is a self-contained demonstration, and any previously generated bundle is a prior output — none of it is an input. Do not read the demo walkthrough as a spec, and do not read or copy a prior bundle's axes, source mapping, or run results. "Accessible sources" means only the evaluation source the user named: the CLL read through the CLI, and the dataset. Derive the axes fresh from the value proposition; inspect a representative Capsule via the CLI only to learn the source's shape. The compiler's own machinery — this `SKILL.md`, `assets/`, and `references/capsule-cli.md` — is what you use to build the bundle.
+
+Never infer the evaluation's domain, dataset, or source from the current working directory or the files that happen to sit in it. The value proposition's wording never implies a particular dataset, domain, or benchmark; do not reach for a script or dataset the user did not name. The interactions source, and whether any backfill is relevant, are part of access and come from the user — when the user gives only a value proposition and no source, ask where the interactions are recorded.
 
 Selection belongs to execution, not compilation. A CLL-backed skill accepts a profile name and either an exclusive/inclusive sequence range `(after, through]` or an append-time window such as the last seven days. Never hardcode the experiment's profile, IDs, range, dates, secrets or machine paths into a reusable bundle.
 
