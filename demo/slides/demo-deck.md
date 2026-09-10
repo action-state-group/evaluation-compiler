@@ -416,6 +416,35 @@ is. `GET /v1/inclusion/{capsule_id}` is the direct-register surface and 404s a C
 
 ---
 
+## Verify a Capsule — and catch tampering  *(live)*
+
+Content-addressed + **bound** payload → offline verify, no trust in the producer.
+
+```sh
+capsulectl get    --profile airlinedemo --capsule-id "$ID" --raw --output rec.json
+capsulectl verify --profile airlinedemo --capsule rec.json          # exit 0
+# -> capsule_identity=passed, producer_signature_and_trust=passed,
+#    payload {Bound:true, Verified:true}
+
+# tamper one byte of the bound payload, leave capsule_id as an attacker would present it:
+python3 - <<'PY'
+import json,base64
+r=json.load(open("rec.json")); a=r["artifacts"][0]
+p=json.loads(base64.b64decode(a["content"]))
+p["agent_interaction"]["messages"][0]["content"] += " [TAMPERED]"
+a["content"]=base64.b64encode(json.dumps(p).encode()).decode()
+json.dump(r,open("tampered.json","w"))
+PY
+capsulectl verify --profile airlinedemo --capsule tampered.json     # exit 1
+# -> {"capsule_and_artifacts":"failed"}
+```
+
+The recomputed payload digest ≠ the committed `agent_input_digest` / `capsule_id`, so
+verify **fails**. A buyer re-verifies a shared evaluation-report Capsule the same way —
+offline, trusting no one.
+
+---
+
 ## Demo A — Alchemy (production CLL)  *(concept; internal, not copy-paste)*
 
 Same workflow, source is an **existing production CLL** of real investigations.

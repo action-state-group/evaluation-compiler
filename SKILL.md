@@ -21,7 +21,7 @@ Resolve (derive first; ask only for what is missing and material):
 
 Access is the one input you usually cannot infer, so it is the most likely single question. Everything else — evaluation unit, target mode, axes, aggregation defaults — you normally derive from the value proposition and a quick look at the source.
 
-If access is missing from the request, explicitly resolve it during intake. Obtain CLI command/output semantics from [capsule-cli.md](references/capsule-cli.md). Inspect a representative source through the CLI when available, but do not mistake stored context or an agent-authored answer for independent truth.
+If access is missing from the request, explicitly resolve it during intake. Obtain CLI command/output semantics from [capsule-cli.md](references/capsule-cli.md). Inspect a representative source to learn its shape, but do not mistake stored context or an agent-authored answer for independent truth. When the source is already a CLL, read one entry through the CLI; when it is not yet in a CLL (a native benchmark or dataset), read the original data files directly. Do not create a profile, stand up a CLL, or run any backfill in order to inspect it.
 
 Ignore the `demo/` folder entirely when compiling. Everything under `demo/` is a self-contained demonstration, and any previously generated bundle is a prior output — none of it is an input. Do not read the demo walkthrough as a spec, and do not read or copy a prior bundle's axes, source mapping, or run results. "Accessible sources" means only the evaluation source the user named: the CLL read through the CLI, and the dataset. Derive the axes fresh from the value proposition; inspect a representative Capsule via the CLI only to learn the source's shape. The compiler's own machinery — this `SKILL.md`, `assets/`, and `references/capsule-cli.md` — is what you use to build the bundle.
 
@@ -44,6 +44,8 @@ Create only these resources:
 - `references/capsule-cli.md`: the CLI contract, copied from this compiler's reference.
 - `bin/capsule`: the compatible CLI executable when distributing a self-contained bundle. This is the only program in the bundle; configuration and credentials stay on the execution host.
 
+Compilation produces the bundle and nothing else. The compiler does not create Capsule CLI profiles, stand up or initialize a CLL, backfill a dataset, or publish — and it does not investigate how to do those things (no `profile create`/`profile show`, no store init, no backfill run). It records the named profile as a runtime input in `resolved-spec.json` and the generated evaluator and aggregator skills, so they know which profile to read; it neither creates nor validates that profile. Creating the profile and backfilling a native benchmark into a CLL are separate operator prep steps performed outside the compiler; the bundle's `source.md` documents the dataset→Capsule mapping so those steps and the generated skill agree.
+
 Use outcome-linked axes, not an output-feature checklist. Separate desired and agent outcome records, with evidence IDs per claim. Do not claim that a proxy measures actual time saved or risk reduced.
 
 When `cross_case_aggregation` is not `none`, also generate a separate aggregation bundle (e.g. `<scenario>-aggregate/`) whose host agent reduces completed reports rather than judging. It reuses the same `axes.json` and `resolved-spec.json` by reference — do not regenerate or fork the axes — and its resources are:
@@ -52,9 +54,9 @@ When `cross_case_aggregation` is not `none`, also generate a separate aggregatio
 - `references/capsule-cli.md` and `bin/capsule`: copied as for the per-case bundle.
 The aggregation skill selects `evaluation-report/v1` Capsules over the range, verifies each, reduces their axis judgments across cases, and publishes one `evaluation-summary/v1` Capsule back into the same CLL. It never re-judges, re-opens source interactions, or imports raw source outcomes.
 
-## Exercise the generated skill
+## Exercise the generated skill (only against a CLL that already exists)
 
-Run the generated SKILL.md using the host agent and CLI directly. Do not replace missing instructions with a bespoke runner. For Alchemy, exercise CLL selection, get/verify, separate outcome records, judging, report publication and readback. Keep private run results outside the compiler and bundle.
+Exercising validates the bundle; it is not setup. Run the generated SKILL.md against a CLL that already exists — for Alchemy, the production CLL; for a backfilled benchmark, only after the operator has separately created the profile and backfilled it. Never create a profile, stand up a CLL, backfill, or otherwise prepare data in order to exercise: if the source is not yet in a CLL, stop after generating the bundle and hand the backfill off as an operator step. Do not replace missing instructions with a bespoke runner. When a CLL is available, exercise selection, get/verify, separate outcome records, judging, report publication and readback; keep private run results outside the compiler and bundle.
 
 Validate the compiler with a fresh evaluation under the newly generated bundle: acquire evidence, extract desired and agent outcomes independently, judge the current axes, create a new report and publish a new evaluation Capsule. Never substitute a previous evaluation report or its judgments for this execution. Record the actual bundle content digests in the report and distinguish missing evidence from execution errors.
 

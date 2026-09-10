@@ -167,37 +167,42 @@ prepared facts. The exchange below is from a real run.
 
 > **You:** invoke the skill.md in this repo
 >
-> **evaluation-compiler:** *(loads `SKILL.md`)* I work backward from a **value
-> proposition** — what should improve, and for whom. That's the one input I can't
-> infer. Tell me the scenario in your own words; I'll derive the evaluation unit, axes
-> and defaults, and ask only for anything genuinely missing (most likely access to the
-> source CLL).
+> **evaluation-compiler:** *(loads `SKILL.md`)* I compile a **value proposition** plus
+> a recorded-interaction source into an evaluation skill bundle. What should improve,
+> and for whom? I'll derive the scenario, evaluation unit, outcome authority and
+> judging policy myself; the one thing I usually can't infer is **access** — the named
+> Capsule CLI profile that reads the CLL, or, if the source is a benchmark/dataset,
+> where it lives so it can be backfilled into a CLL first.
 >
 > **You:** Give the customer a clear, empathetic service experience that fully resolves
 > their request in a single interaction with minimal effort. We're evaluating an
 > **airline** customer-service agent.
 >
 > **evaluation-compiler:** From that I derive: one customer interaction per case; draft
-> axes around resolution completeness, single-contact resolution, customer effort, and
-> empathy/clarity; no aggregation by default. One thing I can't infer — **where are the
-> interactions recorded?** An existing CLL via a named Capsule CLI profile, or a
-> benchmark to backfill first? (I won't assume the tau2 demo sitting in this repo's
-> `demo/` folder — I need your actual source.)
+> axes for resolution completeness, single-interaction resolution, customer effort,
+> empathy/tone, and policy compliance; aggregation none by default. Target mode is
+> `declared` if each case ships its own criteria, else `evidence_derived` — I'll confirm
+> once I see the source. The one thing I can't infer: **where are the interactions
+> recorded?** An existing CLL (which profile?), or a benchmark/dataset to backfill
+> (where does it live, and does it ship a scoring contract to preserve)?
 >
-> **You:** A local SQLite CLL — profile `airlinedemo`. It's the tau2 airline benchmark
-> backfilled one Capsule per task (trial 0). One correction: authority is **declared**,
-> not evidence-derived — the desired outcome is the task's declared scenario, read from
-> `~/GitHub/tau2-bench/data/tau2/domains/airline/tasks.json` by `payload.case.task_id`,
-> transcript-blind; the agent outcome is the bound `payload.agent_interaction`; don't
-> use tau2's `reward_info`. No aggregation.
+> **You:** They're not in any system yet — just JSON files on disk. The recorded
+> conversations are in
+> `~/GitHub/tau2-bench/data/tau2/results/final/claude-3-7-sonnet-20250219_airline_default_gpt-4.1-2025-04-14_4trials.json`,
+> and
+> `~/GitHub/tau2-bench/data/tau2/domains/airline/tasks.json`
+> describes the task behind each conversation and what counts as fully resolving it.
 
 *(dialog continues — captured live below as the run proceeds)*
 
-From here the skill inspects a representative Capsule and the dataset, finalizes the
-axes, and compiles the bundle to
+From here the skill inspects the **original benchmark data** — one sample run from the
+results file and one task scenario from the dataset — to confirm the shape and target
+mode (no CLL exists yet), finalizes the axes, and compiles the bundle to
 `~/.local/share/evaluation-bundles/airline-investigation/`: `axes.json`,
-`references/source.md` (the dataset→Capsule payload mapping), `resolved-spec.json`,
-`references/{execution,capsule-cli}.md`, `bin/capsule`.
+`references/source.md` (the dataset→Capsule payload mapping the backfill will follow),
+`resolved-spec.json`, `references/{execution,capsule-cli}.md`, `bin/capsule`. The CLL
+is created afterward by the backfill step (B1/B2); the generated skill reads it at run
+time.
 
 **Run the generated skill on one case** — a runtime invocation, not intake:
 
@@ -418,3 +423,57 @@ Because `publish` appends to a public, append-only log, only run it when you int
 permanent public record. If a checkpoint at the current MMR size already exists
 locally, append/observe a new entry before `create` so a fresh witness delivery is
 enqueued.
+
+---
+
+## D. Verify a Capsule — and catch tampering
+
+Every Capsule is content-addressed and its `payload` is **bound**, so verification is
+offline and needs no trust in the producer: the CLI recomputes the content address and
+the payload digest and checks the Ed25519 producer signature against the trusted key.
+Tampering with the payload breaks that chain. Uses the airline CLL from B1/B2.
+
+### D1. Positive — a genuine Capsule verifies
+
+```sh
+ID=$(capsulectl cll list --profile airlinedemo --after 0 --through 1 \
+     | python3 -c 'import sys,json;print(json.load(sys.stdin)["entries"][0]["capsule_id"])')
+capsulectl get    --profile airlinedemo --capsule-id "$ID" --raw --output rec.json
+capsulectl verify --profile airlinedemo --capsule rec.json ; echo "exit=$?"
+# -> {"artifacts":{"payload":{"State":"present","Bound":true,"Verified":true}},
+#     "capsule_identity":"passed","producer_signature_and_trust":"passed",
+#     "cll_inclusion":"not_performed","business_truth":"not_performed", ...}
+#    exit=0
+```
+
+Identity, the producer signature/trust, and the bound payload all pass.
+`cll_inclusion` and `business_truth` are `not_performed`: a Capsule verify proves
+**integrity and authorship**, not ledger inclusion (that's `cll verify`) or business
+correctness.
+
+### D2. Negative — tamper the payload, verification fails
+
+Edit one byte of the bound payload (append `[TAMPERED]` to the first message), leaving
+the `capsule_id` and stored digest exactly as an attacker would re-present them:
+
+```sh
+python3 - rec.json tampered.json <<'PY'
+import json,sys,base64
+rec=json.load(open(sys.argv[1])); art=rec["artifacts"][0]
+p=json.loads(base64.b64decode(art["content"]))
+p["agent_interaction"]["messages"][0]["content"] += " [TAMPERED]"
+art["content"]=base64.b64encode(json.dumps(p).encode()).decode()  # capsule_id left untouched
+json.dump(rec,open(sys.argv[2],"w"))
+PY
+
+capsulectl verify --profile airlinedemo --capsule tampered.json ; echo "exit=$?"
+# -> {"capsule_and_artifacts":"failed","cll_inclusion":"not_performed", ...}
+#    capsulectl: operation failed; ...
+#    exit=1
+```
+
+The recomputed payload digest no longer matches the `agent_input_digest` the Capsule
+committed to (nor the content-addressed `capsule_id`), so `capsule_and_artifacts`
+**fails** and the CLI exits non-zero. No signing key and no network needed — anyone
+holding the record catches the change offline. This is exactly what a buyer does with
+a shared evaluation-report Capsule: re-verify it themselves, trusting no one.
