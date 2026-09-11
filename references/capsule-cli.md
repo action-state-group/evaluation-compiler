@@ -7,10 +7,11 @@ All successful stdout is a flat JSON object with spec_version=capsule-cli-result
 ## Resolve the profile
 
 ```sh
-capsulectl profile show --profile NAME
+capsulectl profile list
+capsulectl profile show NAME
 ```
 
-Read `StoreID`, `Namespace` and `LogID` to freeze the target; `ReadOnly` describes write configuration. Do not save the entire profile or its credentials in the run or bundle. The store backend (`Type`) may be `mysql` or `sqlite`; both expose the identical CLL/get/verify/publish contract below, so the evaluation workflow does not depend on which is configured. A dataset backfilled into a local `sqlite` store is enumerated and verified exactly like any other profile.
+`profile list` returns `{"profiles":[NAME, …]}` — the configured profile names, for discovery only (it carries no store/namespace details). Resolve a specific one with `profile show NAME` (NAME is positional, not a `--profile` flag). Read `StoreID`, `Namespace` and `LogID` to freeze the target; `ReadOnly` describes write configuration. Do not save the entire profile or its credentials in the run or bundle. The store backend (`Type`) may be `mysql` or `sqlite`; both expose the identical CLL/get/verify/publish contract below, so the evaluation workflow does not depend on which is configured. A dataset backfilled into a local `sqlite` store is enumerated and verified exactly like any other profile.
 
 ## Enumerate
 
