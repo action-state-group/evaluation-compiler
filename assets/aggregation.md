@@ -89,6 +89,10 @@ Prepare a `capsule-seal-request/v1` request as specified in `capsule-cli.md`; AA
 digest inputs reject floating-point numbers, so encode rates and any decimal metadata
 as decimal strings. Call `capsulectl publish`, then get the returned summary Capsule,
 verify its identity/signature/trust and bound payload, and read back its sequence from
-the target CLL. The summary is itself an appended, checkpointable, witnessable Capsule.
+the target CLL. A summary reduces many reports, so it binds them through the enumerated
+contributing report Capsule IDs/sequences in its source selection (and composed members
+where the store records them), not through a single-parent `chain` block; the single-parent
+`chain` links a per-case report to the one source interaction it evaluated. The summary is
+itself an appended, checkpointable, witnessable Capsule.
 Keep run data outside the distributed bundle. Report the summary Capsule ID/sequence,
 the contributing set, and any dropped reports or zero-denominator axes.
