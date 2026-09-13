@@ -129,7 +129,7 @@ Backfill reads **only shipped tau2 results**: no agent run, no user simulator,
 **no model/LLM API key**, and nothing synthesized. tau2-bench is a runnable
 benchmark and ships its recorded runs under `data/tau2/results/final/*.json`;
 each file holds `simulations[]` for every `(task_id, trial)`, with the real agent
-+ user-simulator transcript. `demo/tau2-backfill/backfill.py` takes just the
++ user-simulator transcript. `demo/backfill/backfill.py` takes just the
 results file and an output dir, and writes one `capsule-seal-request/v1` per task
 (its trial-0 run) as `task-<id>.json`. The bound `payload` carries the real
 `agent_interaction` (transcript + tool calls, with each call's `requestor`
@@ -140,7 +140,7 @@ file; the Capsule's operator/developer are fixed backfill-provenance labels.
 TAU2=~/GitHub/tau2-bench            # cloned tau2-bench repo
 EC=~/GitHub/evaluation-compiler     # this repo
 RES="$TAU2/data/tau2/results/final/claude-3-7-sonnet-20250219_airline_default_gpt-4.1-2025-04-14_4trials.json"
-python3 "$EC/demo/tau2-backfill/backfill.py" --results "$RES" --out "$DEMO/backfill"
+python3 "$EC/demo/backfill/backfill.py" --results "$RES" --out "$DEMO/backfill"
 # publish every backfilled interaction (one per task) as one CLL entry
 for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile airlinedemo --request "$f" >/dev/null; done
 capsulectl cll list --profile airlinedemo --after 0 --limit 1000 \

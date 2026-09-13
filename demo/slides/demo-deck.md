@@ -227,7 +227,7 @@ EC=~/GitHub/evaluation-compiler
 RES="$TAU2/data/tau2/results/final/claude-3-7-sonnet-20250219_airline_default_gpt-4.1-2025-04-14_4trials.json"
 
 # one seal request per task (its trial-0 run) — 50 for airline
-python3 "$EC/demo/tau2-backfill/backfill.py" --results "$RES" --out "$DEMO/backfill"
+python3 "$EC/demo/backfill/backfill.py" --results "$RES" --out "$DEMO/backfill"
 
 # publish each as one CLL entry
 for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile airlinedemo --request "$f" >/dev/null; done

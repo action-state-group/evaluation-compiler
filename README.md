@@ -28,7 +28,7 @@ way.
   CLL, and a tau2 customer-service evaluation over a local SQLite CLL — compile →
   backfill → run → aggregate — plus an offline CLL checkpoint and the witness
   procedure), `demo/slides/`,
-  and `demo/tau2-backfill/` (operator-side data-prep mapping shipped tau2 runs into
+  and `demo/backfill/` (operator-side data-prep mapping shipped tau2 runs into
   seal requests). The compiler ignores this folder when compiling.
 
 ## Boundaries
