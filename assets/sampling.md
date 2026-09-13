@@ -32,28 +32,54 @@ Partition the population by the judge's verdict on the audited quantity:
 - stratum **P** = reports the judge marked `pass` (size `N_p`);
 - stratum **F** = reports the judge marked `fail` (size `N_f`).
 
-Random sampling wastes effort: at a high pass rate a random draw is almost all
-passes and barely measures the false-pass rate, usually the costlier error.
-Stratifying by verdict measures both error directions for the same human effort.
-Reports whose audited quantity is `unjudgeable`/`not_applicable` form their own
-excluded stratum — record them; do not force them into P or F.
+Random sampling wastes effort: at a high judge-pass rate a random draw is almost all
+judge-`pass` cases, so it pins the false-*pass* rate `b̂` well but barely measures the
+false-*fail* rate `â` (too few judge-`fail` cases) — and at a low pass rate the sparse
+direction flips. Stratifying by verdict gives usable precision for **both** conditional
+error rates for the same human effort, whatever the base rate. Reports whose audited
+quantity is `unjudgeable`/`not_applicable` form their own excluded stratum — record them;
+do not force them into P or F.
 
 ## Draw the sample
 
-Draw `n_p` from P and `n_f` from F by **seeded** random selection (sizes are runtime
-inputs). Before any rating, record a sample manifest — the period window, cohort
-identity, `N_p`/`N_f`, `n_p`/`n_f`, the seed, and the selected report Capsule IDs —
-so the sample is reproducible and cannot be re-drawn to taste. Persist the manifest
-(optionally as its own Capsule) as the frozen selection for this period.
+Draw `n_p` from P and `n_f` from F (sizes are runtime inputs) by a **fully specified,
+reproducible** rule, not an unspecified RNG. Within each stratum, order the reports
+ascending by the hex of `SHA-256( u32be(len(utf8(seed))) || utf8(seed) || utf8(report_capsule_id) )`
+— a 4-byte big-endian length prefix on the seed frames the two fields unambiguously for
+any seed bytes (a bare delimiter fails if the seed contains it) — break ties by
+`report_capsule_id`, and take the first `n_s`. Naming the hash, byte encoding, framing,
+order and tie-break is load-bearing: a bare seed, a different hash, or ambiguous
+concatenation would select different reports. Sample each report at most once.
 
-## Present blind and capture ratings
+Before any rating, publish a **`sample-manifest/v1`** Capsule for the period, sealed and
+read back like any Capsule (`ActionType=fyi`, standalone). Its payload records the
+`period_window`, `cohort` (shared `axes` digest, evaluated subject/model/config, dataset
+revision), `audited_quantity`, `N_p`/`N_f`, `n_p`/`n_f`, the `seed`, the exact
+`selection_rule`, and `selected` — the chosen report Capsule IDs per stratum. Every
+`human-rating/v1` for the period references this manifest Capsule's id, giving the
+calibration bundle a defined, verifiable route to resolve it and check each rating's
+report against the frozen selected set. The manifest is a Capsule, not a loose digest, so
+the reducer can always reach the selection; being an appended Capsule it is immutable, so
+the sample is auditable and cannot be re-drawn to taste.
 
-For each sampled report, present the underlying **interaction** to a human expert —
-the transcript and permitted evidence only. The expert must not see the judge's
-verdict, rationale, or any axis result: reveal none of the report payload. Capture
-the expert's pass/fail (allow an explicit `unsure`) and optional rationale. A rating
-produced while the rater could see the judge output is not independent; discard it
-and re-rate blind, or record the exposure as a limitation rather than count it.
+## Assemble the rater packet, present blind, capture ratings
+
+The expert must be able to decide the audited quantity, so give them the **same
+independently-sourced desired outcome the evaluator used**, never just the transcript.
+For each sampled report, assemble a rater packet:
+- resolve the source **interaction** Capsule (the report's chain parent / `source_selection`),
+  `get` and `verify` it, and include its authenticated transcript and permitted evidence;
+- reuse the audited axis's rubric from `axes.json` and the desired-outcome materials via
+  `references/source.md` — for a `declared` target, the case's declared criteria read by
+  case id; for an `evidence_derived` target, the independent evidence gathered by that
+  procedure — sourced transcript-blind exactly as the evaluator sources them;
+- **exclude every judge-derived field**: the report's verdict, rationale, axis judgments,
+  and the stratum label. The rater is blind to the judge, not to the ground-truth criteria.
+
+Present the packet and capture the expert's `pass`/`fail` (allow an explicit `unsure`)
+and optional rationale. A rating produced while the rater could see the judge output is
+not independent; discard it and re-rate blind, or record the exposure as a limitation
+rather than count it.
 
 Never synthesize a rating, infer it from the judge, or fill an unrated sample slot
 with a model verdict. A missing rater means the sample is incomplete, reported as

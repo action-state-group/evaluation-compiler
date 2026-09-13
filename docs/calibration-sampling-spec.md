@@ -14,9 +14,10 @@ human ratings to the judge's verdicts yields a *statistical* estimate of judge
 quality and a bias-corrected population rate. Ground truth exists only for the
 sample; the certified object is the **judge**, not each capsule.
 
-This does not change the per-case evaluator contract. It adds one Capsule type
-and one aggregation, both reusing existing mechanisms (Capsules, the `chain`
-link, the aggregation-bundle pattern). No new store, table, or service.
+This does not change the per-case evaluator contract. It adds two Capsule types
+(`sample-manifest/v1` and `human-rating/v1`) and one aggregation, all reusing existing
+mechanisms (Capsules, the `chain` link, the aggregation-bundle pattern). No new store,
+table, or service.
 
 ## What is measured
 
@@ -32,62 +33,98 @@ Two error rates, not one (they have different costs):
 
 ## Sampling design: stratify by the judge's verdict
 
-Plain random sampling is the trap. At a ~90% pass rate a random 10 contains ~1
-failure, so it barely measures `b` (the usually-costlier error). Instead
-stratify by the judge verdict over the period:
+Plain random sampling is the trap. At a ~90% judge-pass rate a random 10 is almost
+all judge-`pass` cases: it pins `b` well but holds ~1 judge-`fail`, so it barely
+measures `a` (and at a low pass rate the sparse direction flips). Stratifying by the
+judge verdict gives usable precision for **both** error rates:
 
-- Stratum P = interactions the judge marked pass (population size `N_p`).
-- Stratum F = interactions the judge marked fail (population size `N_f`).
-- Draw `n_p` from P and `n_f` from F (e.g. 5 + 5) by seeded random selection.
+- Stratum P = reports the judge marked pass (population size `N_p`).
+- Stratum F = reports the judge marked fail (population size `N_f`).
+- Draw `n_p` from P and `n_f` from F (e.g. 5 + 5) by a fully specified rule: order each
+  stratum ascending by the hex of
+  `SHA-256( u32be(len(utf8(seed))) || utf8(seed) || utf8(report_capsule_id) )` (a 4-byte
+  big-endian length prefix frames the seed unambiguously for any bytes), break ties by
+  `report_capsule_id`, and take the first `n_s`. A bare seed or an unnamed hash/encoding
+  is not reproducible across enumeration orders or implementations.
 
-Record the sampling frame, strata sizes, seed, and selected interaction ids in a
-**sample manifest** (optionally its own Capsule) before humans rate, so the
-sample cannot be cherry-picked after the fact.
+Record the frame, strata sizes, seed, the exact selection rule, and selected report ids
+in a **sample manifest published as its own Capsule** before humans rate. Every
+`human-rating/v1` references that manifest Capsule id, so calibration can resolve, verify
+and check membership; being an appended Capsule it is immutable, so the sample cannot be
+cherry-picked or re-drawn.
 
 ## Blinding
 
-The human rater sees the interaction transcript and any permitted evidence, but
-**not** the judge's verdict or rationale — otherwise anchoring inflates
-agreement. Each rating attests `blind: true`. This is the audit analog of the
-evaluator's extraction isolation.
+The rater must be able to decide the audited quantity, so the packet includes the
+**same independently-sourced desired outcome the evaluator uses** — the audited axis
+rubric and the declared criteria (or the evidence-derived procedure), sourced
+transcript-blind — alongside the interaction transcript and permitted evidence. What
+the rater must **not** see is any judge-derived field: the report's verdict, rationale,
+axis judgments, or stratum label. Blind to the judge, not to the ground truth. Each
+rating attests `blind: true`. This is the audit analog of the evaluator's extraction
+isolation.
 
 ## Estimators
 
-Within each stratum the human ratings give binomial proportions:
+Count only **usable** ratings (drop `unsure` and verification-dropped); let `m_p`, `m_f`
+be usable counts per stratum and use them — never the drawn `n_p`/`n_f` — in every
+estimate:
 
-- from F: `â = (#human-pass in F sample) / n_f`  → false-fail rate
-- from P: `b̂ = (#human-fail in P sample) / n_p`  → false-pass rate
+- from F: `â = (#usable human-pass in F) / m_f`  → false-fail rate
+- from P: `b̂ = (#usable human-fail in P) / m_p`  → false-pass rate
 
-Bias-corrected population pass rate (stratified):
-
-```
-p̂ = [ N_p·(1 - b̂) + N_f·â ] / (N_p + N_f)
-```
-
-Variance (add finite-population correction per stratum; use Wilson intervals for
-the per-stratum proportions when n is small, then propagate):
+Raw sample agreement is **not** judge accuracy under disproportionate strata; report the
+population-weighted judge accuracy `Â` and the bias-corrected pass rate `p̂`:
 
 ```
-Var(p̂) = [ N_p²·Var(b̂) + N_f²·Var(â) ] / (N_p + N_f)²
-Var(b̂) = b̂(1-b̂)/n_p · (N_p - n_p)/(N_p - 1)     (fpc)
-Var(â) = â(1-â)/n_f · (N_f - n_f)/(N_f - 1)
+Â = [ N_p·(1 - b̂) + N_f·(1 - â) ] / (N_p + N_f)
+p̂ = [ N_p·(1 - b̂) + N_f·â       ] / (N_p + N_f)
 ```
 
-Precision reality: a single period of 10 is coarse (10/10 agreement → 95% Wilson
-CI ≈ [72%, 100%]). Treat each period as a point on a **control chart**; the
-running estimate over many periods (10/week × 52 ≈ 520) tightens agreement to
-~±2–3pp. The weekly value catches a badly broken judge; the trend certifies a
-good one and flags drift.
+Intervals (target 95% *simultaneous* coverage): use a **Wilson score interval** per
+stratum proportion from `m_p`/`m_f` (non-degenerate at 0/1, unlike a Wald plug-in, which
+collapses to a false zero-width CI). Both stratum intervals are used at once, so take
+each at the Bonferroni level `97.5%` for a ≥95% joint interval. Apply the fpc as
+`mid ± fpc·h` (Wilson midpoint/half-width, `fpc = sqrt((N_s-m_s)/(N_s-1))`), then combine
+by monotonicity — `p̂` and `Â` differ: `p̂` up in `â` / down in `b̂` (`p̂_L`=`b̂_U,â_L`;
+`p̂_U`=`b̂_L,â_U`), while `Â` is **down in both** (`Â_L`=`b̂_U,â_U`; `Â_U`=`b̂_L,â_L`).
+Degenerate strata (before the fpc): `N_s=0` absent; `m_s=0` unestimated (partial bounds,
+not 0); `m_s=N_s` census (incl. `N_s=1`) → exact `[x_s/N_s, x_s/N_s]`.
+
+Precision reality: a single period is coarse (`m=10`, 10/10 → 95% Wilson CI ≈ [72%,
+100%]). Treat each period as one point on a **control chart**. Pooling periods into a
+tighter number requires an explicit weighted multi-period estimator under stable strata
+weights and judge behaviour — do not assert a fixed pooled precision from a period count
+alone; keep drift detection separate from pooling.
+
+## Capsule: `sample-manifest/v1`
+
+The sampling skill publishes one manifest Capsule per period before rating, sealed and
+read back like any Capsule (`ActionType=fyi`; standalone, no `chain`). Payload:
+
+- `spec_version: sample-manifest/v1`
+- `period_window`, `cohort` (shared `axes` digest, evaluated subject/model/config,
+  dataset revision), `audited_quantity`
+- `N_p`, `N_f`, `n_p`, `n_f`
+- `seed` and `selection_rule` (the exact rule string, e.g. the SHA-256 length-prefixed
+  ordering above)
+- `selected`: the chosen report Capsule IDs per stratum (`{ "judge_pass": [...], "judge_fail": [...] }`)
+
+Calibration resolves this Capsule (every rating references it), verifies it, and checks
+its `period_window`, `cohort`, `audited_quantity`, strata sizes, `seed` and
+`selection_rule` against the run before trusting `selected` as the membership set — not
+just the envelope. A mismatch is a verification error.
 
 ## Capsule: `human-rating/v1`
 
 One Capsule per human rating, appended to the same CLL, chained to the
 `evaluation-report/v1` Capsule it audits (reuse of the `chain` mechanism — see
 `references/capsule-cli.md`), forming the provenance chain interaction ← report ←
-rating. The sampling skill sets the chain parent to the report; the **rater sees
-only the interaction** (transcript + evidence), never the report payload, so the
-rating audits exactly one verdict while staying blind to it. The chain link is
-also the calibration join — no identity re-derivation needed.
+rating. The sampling skill sets the chain parent to the report; the **rater sees the
+full packet defined in "Blinding"** (the interaction plus the independently-sourced
+desired-outcome materials) and none of the judge-derived report fields, so the rating
+audits exactly one verdict while staying blind to the judge. The chain link is also the
+calibration join — no identity re-derivation needed.
 
 Request `capsule` (PascalCase `emit.Input`; `assurance`/`ledger_mode` are derived,
 not caller-set):
@@ -117,7 +154,7 @@ not caller-set):
       "frame_window": "2026-09-01T00:00Z/2026-09-08T00:00Z",
       "stratum": "judge_pass",    // judge_pass | judge_fail
       "audited_report_capsule_id": "<evaluation-report capsule_id>",
-      "sample_manifest_capsule_id": "<optional>"
+      "sample_manifest_capsule_id": "<required — the manifest Capsule this sample belongs to>"
     },
     "rationale": "optional",
     "cutoff": "<UTC>"
@@ -129,43 +166,64 @@ Notes:
 - The chain `parent_capsule_id` is the audited report; the calibration join is the
   chain link itself, so the confusion cell is unambiguous even if the judge is re-run.
   `subject` still records the case/trial for cohort checks and must match the report.
-- `unsure` ratings are excluded from the numerators and reported separately.
+- `unsure` (and verification-dropped) ratings are excluded from **both** numerator and
+  denominator — they are not in the usable counts `m_p`/`m_f` — and reported as nonresponse.
+
+## Sampling-and-rating bundle
+
+Generated before the calibration bundle (ratings must exist before they are reduced).
+Its host agent reads the period's `evaluation-report/v1` Capsules, stratifies by the
+judge verdict on `rated_quantity`, draws the reproducible per-stratum sample (canonical
+hash ordering + digested manifest above), and for each sampled report resolves and
+verifies the source interaction and assembles the rater packet (interaction + the
+independently-sourced desired-outcome materials, minus every judge-derived field). It
+captures each expert pass/fail and publishes a `human-rating/v1` Capsule chained to the
+audited report. It never judges and never fabricates a rating for an unrated slot. This
+is the one calibration-flow skill that resolves source interactions; the calibration
+bundle below stays reports-and-ratings-only.
 
 ## Calibration aggregation bundle
 
 A sibling of the existing aggregation bundle. It reduces `evaluation-report/v1`
 (the judged population) together with `human-rating/v1` (the audit sample) over a
-period; it never re-judges and never creates ratings.
+period; it never re-judges, never creates ratings, and never re-opens source
+interactions.
 
 Resources (mirrors the aggregate bundle):
-- `SKILL.md` — purpose, runtime inputs (`profile`, period window, `rated_quantity`,
-  and either the strata sample sizes for a fresh draw or a `sample_manifest`),
-  and the reduce-then-publish steps.
+- `SKILL.md` — purpose, runtime inputs (`profile`, period window, `rated_quantity`),
+  and the reduce-then-publish steps. It does **not** draw samples — that is the
+  sampling bundle's job; calibration only consumes the ratings that already exist.
 - `references/calibration.md` — adapted from a new `assets/calibration.md`.
 - `references/capsule-cli.md` — copied as usual (`capsulectl` stays a host prereq).
 
 Steps:
 1. Select over the window: all `evaluation-report/v1` (population, with judge
    verdict on `rated_quantity`) and all `human-rating/v1` (sample).
-2. `verify` each consumed Capsule including its `chain` link; a rating whose
-   parent interaction or `audited_report_capsule_id` does not resolve in the CLL
-   is a verification failure, not a silent drop.
-3. Join by interaction identity within the window; build the confusion matrix per
-   stratum from blind human `verdict` vs judge verdict.
-4. Compute `â`, `b̂`, agreement, and the bias-corrected `p̂` with CIs; compare to
-   prior window(s) for drift.
+2. `verify` each consumed Capsule, and verify each rating's complete binding to its
+   report: `chain.relation == io.evaluation.human_rates`, `chain.parent_capsule_id`
+   resolves to a cohort report, payload `audited_report_capsule_id` equals that parent,
+   `subject` matches, the recorded stratum matches the report's judge verdict, and the
+   audited report is a member of the verified sample manifest for the period. Any failure
+   (including a rating for a report outside the frozen sample) drops the rating as a
+   verification error, not a silent skip.
+3. Join each rating to its report through the verified chain parent (never by
+   interaction identity); build the confusion matrix per stratum from blind human
+   `verdict` vs judge verdict, using usable counts `m_p`/`m_f`.
+4. Compute `â`, `b̂`, judge accuracy `Â`, and the bias-corrected `p̂`, each with a Wilson
+   + fpc interval; compare to prior window(s) for drift.
 5. Publish one `calibration-summary/v1` Capsule back into the same CLL.
 
 ### `calibration-summary/v1` payload
 
 - calibration identity; period window; scenario; shared `axes` digest;
   `rated_quantity`.
-- sampling design: `N_p`, `N_f`, `n_p`, `n_f`, method (`stratified_by_verdict`),
-  seed / `sample_manifest_capsule_id`, blinding attested.
+- sampling design: `N_p`, `N_f`, drawn `n_p`/`n_f`, usable `m_p`/`m_f`, method
+  (`stratified_by_verdict`), seed / `sample_manifest_capsule_id` (digested), blinding attested.
 - confusion matrix: counts of (judge, human) ∈ {pass, fail} per stratum;
-  `unsure`/excluded counts.
-- estimates: `false_pass_rate` `b̂`±CI, `false_fail_rate` `â`±CI, `agreement`±CI,
-  `corrected_pass_rate` `p̂`±CI (decimal strings — AAC digests reject floats).
+  `unsure`/excluded counts reported as nonresponse.
+- estimates: `false_pass_rate` `b̂`±CI, `false_fail_rate` `â`±CI, `judge_accuracy` `Â`±CI,
+  `corrected_pass_rate` `p̂`±CI, and raw sample `agreement` labelled descriptive-only
+  (decimal strings — AAC digests reject floats).
 - drift: deltas vs prior window(s) and a threshold flag.
 - verification references for every consumed report and rating; limitations
   (small-n caveats, excluded ratings, zero-denominator strata).
