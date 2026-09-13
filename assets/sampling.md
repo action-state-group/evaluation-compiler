@@ -28,7 +28,9 @@ evaluated subject and dataset revision), verify each Capsule's identity, produce
 signature and bound payload, and deduplicate by the case/trial key. This frozen,
 verified set is the population.
 
-Partition the population by the judge's verdict on the audited quantity:
+Partition the population by the judge's verdict on the audited quantity — the case
+aggregate or the single named outcome's aggregate that `resolved-spec.json` records for
+this audit; read that same quantity from every report:
 - stratum **P** = reports the judge marked `pass` (size `N_p`);
 - stratum **F** = reports the judge marked `fail` (size `N_f`).
 

@@ -31,11 +31,11 @@ Keep provider, tool and validation failures separate from business judgments. Ac
 
 ## Judge and report
 
-Write one new `evaluation-report/v1` JSON report per source run. Include evaluation identity, subject/case/run identity, source selection, bundle provenance, desired and agent outcomes, evidence manifest/cutoff, all axis judgments, aggregation, stage provenance, verification references and limitations. Preserve judge-stage limitations as well as extraction limitations.
+Write one new `evaluation-report/v1` JSON report per source run. Include evaluation identity, subject/case/run identity, source selection, bundle provenance, desired and agent outcomes, evidence manifest/cutoff, all axis judgments, an `outcomes` list carrying each outcome's per-outcome aggregate, the case aggregate, stage provenance, verification references and limitations. Preserve judge-stage limitations as well as extraction limitations.
 
-Each judgment has `axis_id`, `status`, `rationale` and `evidence_ids`. Status is `pass`, `fail`, `not_applicable` or `unjudgeable`. Missing evidence makes an applicable axis `unjudgeable`, not `not_applicable`. Do not infer correctness from the agent's confidence or from a prior evaluation.
+Each judgment has `axis_id`, `outcome_id`, `status`, `rationale` and `evidence_ids`. Status is `pass`, `fail`, `not_applicable` or `unjudgeable`. Missing evidence makes an applicable axis `unjudgeable`, not `not_applicable`. Do not infer correctness from the agent's confidence or from a prior evaluation.
 
-`none` means `aggregate:null`. `all_required` passes only an eligible, nonempty required applicable set whose checks all pass; unresolved checks cannot become success. `native` uses the benchmark's resolved existing scoring contract.
+Aggregation rolls up in two levels. `none` means every aggregate (per-outcome and case) is `null`. `all_required` passes an outcome only when its required applicable axis set is eligible, nonempty and all `pass` — unresolved checks cannot become success — and passes the case only when every required outcome passes. `native` uses the benchmark's resolved existing scoring contract at the case level. With a single outcome the two levels collapse to one.
 
 ## Publish and verify
 

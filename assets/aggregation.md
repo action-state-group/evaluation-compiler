@@ -39,7 +39,10 @@ the report count, the unique case/trial count (after dedup), and the unique case
 ## Reduce the judgments
 
 Read each report's `axis_judgments` only. Do not re-open the source interactions,
-re-extract outcomes, or import raw source data — the reports are the evidence.
+re-extract outcomes, or import raw source data — the reports are the evidence. Each
+judgment also carries an `outcome_id` grouping it under an outcome, but cross-case
+reduction is **per-axis** over the shared `axes` regardless, so the grouping and the
+reports' per-outcome aggregates do not change these counts.
 
 For every axis in the shared `axes`:
 - Count `pass`, `fail`, `unjudgeable` and `not_applicable` across the contributing
