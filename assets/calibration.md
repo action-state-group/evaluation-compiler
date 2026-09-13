@@ -19,10 +19,13 @@ unsampled cases, which remain judge-derived.
 Resolve the runtime profile and the period window. Enumerate the CLL and separate:
 - `evaluation-report/v1` Capsules of this bundle's cohort (matching `axes` digest,
   evaluated subject and dataset revision), deduplicated by case/trial key — the
-  population, size `N`, split into judge-`pass` `N_p` and judge-`fail` `N_f` on the
-  audited quantity;
-- `human-rating/v1` Capsules whose audited quantity matches and whose window falls in
-  the period — the audit sample.
+  population, total size `N`, split by the audited quantity into judge-`pass` `N_p`,
+  judge-`fail` `N_f`, and an excluded group whose audited quantity is
+  `unjudgeable`/`not_applicable` (record its count; it is not in `N_p` or `N_f`, so the
+  corrected rate below is conditional on a binary judge verdict, not over all `N`);
+- `human-rating/v1` Capsules whose audited quantity matches and that reference this
+  period's `sample-manifest/v1` Capsule — the audit sample; the period window comes from
+  the manifest, not from the rating.
 
 Verify every consumed Capsule's identity, producer signature and bound payload. For
 each rating, verify the **complete binding** to the report it audits, and drop it as a
@@ -32,17 +35,17 @@ loosely-bound rating into a confusion cell:
 - `chain.parent_capsule_id` resolves to a report in this cohort and in the same CLL;
 - the payload `audited_report_capsule_id` equals that chain parent;
 - the payload `subject` matches that report's subject (case/trial);
-- the rating's recorded stratum matches the report's judge verdict on the audited
-  quantity, recomputed here from the report — a `judge_pass` rating whose report is
-  actually judge-`fail` is misfiled and dropped;
-- its audited report is a member of the period's **`sample-manifest/v1`** Capsule:
-  resolve that manifest Capsule (its id is carried by every rating) and verify it —
-  confirm its `period_window`, `cohort`, `audited_quantity`, strata sizes, `seed` and
-  `selection_rule` match this run, not just its envelope — then require the report to be
-  in its `selected` set. A rating for a report outside the sample is dropped; only the
-  pre-registered sample feeds the estimate, so no otherwise-valid off-sample rating can
-  bias it. All ratings in the period must reference the same manifest Capsule; a divergent
-  reference is a verification error.
+- its audited report is a member of the period's **`sample-manifest/v1`** Capsule, filed
+  under the correct stratum: resolve that manifest Capsule (its id is carried by every
+  rating) and verify it — confirm its `period_window`, `cohort`, `audited_quantity`, strata
+  sizes, `seed` and `selection_rule` match this run, not just its envelope — then require
+  the report to appear in the `selected` stratum (`judge_pass`/`judge_fail`) that equals its
+  judge verdict on the audited quantity **recomputed here from the report**. A report absent
+  from `selected`, or filed under a stratum that disagrees with its recomputed verdict, is a
+  manifest/verdict mismatch and the rating is dropped; only the pre-registered sample feeds
+  the estimate, so no off-sample rating can bias it. The stratum is derived this way, not
+  read from a rating field. All ratings in the period must reference the same manifest
+  Capsule; a divergent reference is a verification error.
 
 Join each rating to its report through the verified chain parent, never by re-deriving
 identity. A report is audited once: if more than one rating chains to the same report,
@@ -56,7 +59,13 @@ Count only **usable** ratings: drop `unsure` and verification-dropped ratings fr
 numerator and denominator, and report the excluded count as nonresponse. Let `m_p` and
 `m_f` be the usable rating counts in the judge-`pass` (P) and judge-`fail` (F) strata.
 Use `m_p`/`m_f`, never the drawn sample sizes `n_p`/`n_f`, in every estimate and
-interval — dividing by the drawn size biases the error rates toward zero.
+interval — dividing by the drawn size biases the error rates toward zero. These
+complete-case rates estimate the stratum only when unusable ratings (`unsure`/dropped) are
+missing independently of the truth within that stratum; if hard cases disproportionately
+become unusable the estimates are biased and reporting the excluded count does not repair
+it. When that independence is doubtful, give sensitivity bounds over the unusable sampled
+units or withhold the population point estimate rather than presenting it as
+bias-corrected.
 
 Blind human verdict versus judge verdict, per stratum:
 - from F: `â = (# usable human "pass" in F) / m_f` — false-fail rate `P(truth pass | judge fail)`;
@@ -73,13 +82,16 @@ is *correct* when the human also says fail, rate `1-â`; it is *truly pass* at r
 p̂ = [ N_p·(1 - b̂) + N_f·â       ] / (N_p + N_f)   # corrected pass rate
 ```
 
-Give confidence intervals targeting **95% simultaneous** coverage, not point estimates
-alone. Compute a **Wilson score interval** for each stratum proportion `â`, `b̂` from its
-usable count `m_f`, `m_p`; Wilson stays non-degenerate at `0` and `1`, so a clean stratum
-still carries honest uncertainty (a Wald plug-in variance `p(1-p)/m` collapses to zero
-there — do not use it). Because the combined estimate uses **both** stratum intervals at
-once, split the error budget with Bonferroni: take each stratum interval at level
-`1 - 0.05/2 = 97.5%` so the joint interval holds at ≥95%. Apply the finite-population
+Give confidence intervals targeting an **approximate 95% simultaneous** coverage, not
+point estimates alone. Compute a **Wilson score interval** for each stratum proportion `â`,
+`b̂` from its usable count `m_f`, `m_p`; Wilson stays non-degenerate at `0` and `1`, so a
+clean stratum still carries honest uncertainty (a Wald plug-in variance `p(1-p)/m` collapses
+to zero there — do not use it). Because the combined estimate uses **both** stratum intervals
+at once, split the error budget with Bonferroni: take each stratum interval at level
+`1 - 0.05/2 = 97.5%` for an approximate ≥95% joint level. Report the level as
+**approximate**: Wilson is not exact and the fpc scaling below is a pragmatic
+finite-population adjustment, not an exact finite-population interval, so do not claim a
+guaranteed coverage. Apply the finite-population
 correction to each stratum interval as `[mid - fpc·h, mid + fpc·h]`, where `mid` and `h`
 are the Wilson midpoint and half-width and `fpc = sqrt((N_s - m_s)/(N_s - 1))`. Then
 combine by monotonicity, noting `p̂` and `Â` differ:
@@ -115,9 +127,11 @@ blinding attested), and the prior summaries used for drift. Never manufacture hi
 provenance.
 
 Write one `calibration-summary/v1` JSON payload holding: calibration identity, period
-window, cohort identity, audited quantity, sampling design (including drawn and usable
-counts), the per-stratum confusion counts, `â`/`b̂`/judge-accuracy `Â`/corrected-rate `p̂`
-each with its confidence interval and level, raw sample agreement labelled as descriptive,
+window, cohort identity, audited quantity, sampling design (including total cohort size
+`N`, the excluded `unjudgeable`/`not_applicable` count, and drawn and usable counts), the
+per-stratum confusion counts, `â`/`b̂`/judge-accuracy `Â`/corrected-rate `p̂` (the latter two
+labelled conditional on a binary judge verdict) each with its approximate confidence
+interval and level, raw sample agreement labelled as descriptive,
 the drift comparison, excluded (`unsure`/dropped) ratings as nonresponse, degenerate/
 zero-denominator strata, verification references,
 and limitations (small-n caveats first).

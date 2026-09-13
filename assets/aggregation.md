@@ -57,13 +57,16 @@ Then compute the cross-case roll-up named by `cross_case_aggregation`. This poli
 the report's within-case `aggregate`, which is `null` whenever the per-case policy was
 `none`.
 - `rate` — the per-axis pass rates above, with no single overall number.
-- `all_required` — the fraction of contributing cases that pass a required-axis check
-  computed here from each report's `axis_judgments`: a case passes only if its required
-  applicable set is **nonempty** and every axis in it is `pass`, with no `fail` and no
-  `unjudgeable` (a required axis reported `not_applicable` is excluded, matching the rate
-  denominator; a case with no applicable required axis is not a pass). A case with any
-  `unjudgeable` required axis is not a pass. This does not read the within-case
-  `aggregate`.
+- `all_required` — the fraction of contributing cases that pass, reconstructed here from
+  each report's flat `axis_judgments` into the two-level within-case rule (never from the
+  stored `aggregate`, so it still works when the per-case policy was `none`): group the
+  judgments by `outcome_id`, drop `not_applicable` axes, and mark each **required** outcome
+  a pass only if its remaining required axes are a **nonempty** set that are all `pass`
+  (any `fail` or `unjudgeable` fails the outcome; a required outcome with no applicable
+  required axis is not a pass). The case passes only if its **required** outcomes are a
+  nonempty set that all pass; axes of optional outcomes do not affect the case result. The
+  shared `axes` metadata supplies each axis's `outcome_id` and the `role` of every axis and
+  outcome.
 - `native` — the benchmark's resolved scoring contract (e.g. tau2 `pass^k`), applied to
   the native result recorded in each report, grouped by the case/trial key so the
   benchmark's task/trial semantics are preserved; do not invent a substitute score.
