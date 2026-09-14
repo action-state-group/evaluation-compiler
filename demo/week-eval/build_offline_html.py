@@ -5,60 +5,78 @@ frag = open(os.path.join(HERE, "frag_v1.txt")).read().strip()
 def esc(s): return s.replace("</script", "<\\/script")
 OUT = os.path.expanduser("~/Downloads/tau2-airline-week1-full.html")
 
+# Render the bundle as a PROVENANCE TREE: from the root (the weekly aggregate),
+# follow each record's references[] (acted_on) and chain parent down to the daily
+# reports and then the interaction acts. Nodes carry their disclosed originals.
 render = r"""
 const $ = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x!=null) e.textContent = x; return e; };
-const badge = (s) => { const b = $("span","badge "+s, s); return b; };
+const badge = (s) => $("span", "badge " + s, s);
 (async () => {
-  const root = document.getElementById("app");
+  const app = document.getElementById("app");
   let bundle, res;
-  try {
-    bundle = window.AAC.decodeFragment(window.__FRAG__);
-    res = await window.AAC.verifyBundle(bundle);
-  } catch (e) { root.appendChild($("pre","err","decode/verify threw: "+(e&&e.stack||e))); return; }
-  const memberships = (bundle.completeness_certificate||{}).memberships || {};
-  const seqOf = (id) => (memberships[id]&&memberships[id].log_coordinates||{}).seq;
+  try { bundle = window.AAC.decodeFragment(window.__FRAG__); res = await window.AAC.verifyBundle(bundle); }
+  catch (e) { app.appendChild($("pre", "err", "decode/verify threw: " + (e && e.stack || e))); return; }
+
+  const byId = {}; for (const r of bundle.records) byId[r.capsule_id] = r;
+  const memberships = (bundle.completeness_certificate || {}).memberships || {};
+  const seqOf = (id) => (memberships[id] && memberships[id].log_coordinates || {}).seq;
+  const disc = bundle.disclosures || {};
+  const specOf = (id) => { const ai = (disc[id] || {}).agent_input; return (ai && ai.spec_version) || ""; };
+  const kind = (id) => { const s = specOf(id); return s.startsWith("evaluation-summary") ? "aggregate" : s.startsWith("evaluation-report") ? "report" : byId[id] ? "interaction" : "missing"; };
+  const missing = new Set((bundle.completeness || {}).missing || []);
+  // disclosure status per (id, member)
+  const dstat = {}; for (const d of res.disclosures) { (dstat[d.capsuleId] = dstat[d.capsuleId] || {})[d.member] = d.status; }
+  // edges: a node cites its references[].digest (acted_on) and its chain parent
+  const childrenOf = (id) => {
+    const r = byId[id]; if (!r) return [];
+    const kids = [];
+    for (const ref of (r.references || [])) if (ref.digest) kids.push(ref.digest);
+    const parent = (r.chain || {}).parent_capsule_id; if (parent) kids.push(parent);
+    return kids;
+  };
+
   // header
-  const h = $("div","head");
-  h.appendChild($("h1",null,"AAC Evidence Bundle — tau2-airline week 1 (full)"));
-  const claims = $("div","claims");
-  for (const [k,label] of [["graphClosure","graph closure"],["intervalCoverage","interval coverage"],["perRecordMembership","per-record membership"]]) {
-    const c = $("div","claim"); c.appendChild($("span","lbl",label)); c.appendChild(badge(res[k].status)); claims.appendChild(c);
+  const head = $("div", "head");
+  head.appendChild($("h1", null, "AAC Evidence Bundle — tau2-airline week 1 (provenance tree)"));
+  const claims = $("div", "claims");
+  for (const [k, label] of [["graphClosure", "graph closure"], ["intervalCoverage", "interval coverage"], ["perRecordMembership", "per-record membership"]]) {
+    const c = $("div", "claim"); c.appendChild($("span", "lbl", label)); c.appendChild(badge(res[k].status)); claims.appendChild(c);
   }
-  h.appendChild(claims);
-  const dc = {}; for (const d of res.disclosures) dc[d.status]=(dc[d.status]||0)+1;
-  h.appendChild($("div","sub", `${bundle.records.length} capsules · disclosures ` + Object.entries(dc).map(([k,v])=>`${v} ${k}`).join(" · ")));
-  root.appendChild(h);
-  // per-record disclosure status
-  const dstat = {}; for (const d of res.disclosures) { (dstat[d.capsuleId]=dstat[d.capsuleId]||{})[d.member]=d.status; }
-  // classify records by the DISCLOSED payload spec_version (the sealed capsule's own
-  // spec_version is always the AAC capsule spec, so it cannot distinguish eval records).
-  const discOf = (id) => (bundle.disclosures||{})[id]||{};
-  const specOf = (id) => { const ai=discOf(id).agent_input; return (ai&&ai.spec_version)||""; };
-  const kind = (r) => { const s=specOf(r.capsule_id); return s.startsWith("evaluation-summary")?"aggregate":s.startsWith("evaluation-report")?"report":"interaction"; };
-  const counts = {aggregate:0, report:0, interaction:0};
-  for (const r of bundle.records) counts[kind(r)]++;
-  h.appendChild($("div","sub", `${counts.aggregate} aggregate · ${counts.report} daily reports · ${counts.interaction} interaction capsules`));
-  const recs = bundle.records.slice().sort((a,b)=> (seqOf(a.capsule_id)||0)-(seqOf(b.capsule_id)||0));
-  const order = {aggregate:0, report:1, interaction:2};
-  recs.sort((a,b)=> (order[kind(a)]-order[kind(b)]) || ((seqOf(a.capsule_id)||0)-(seqOf(b.capsule_id)||0)));
-  for (const r of recs) {
-    const id = r.capsule_id, k = kind(r);
-    const row = $("details","rec "+k);
-    if (k !== "interaction") row.setAttribute("open","");
+  head.appendChild(claims);
+  const counts = { aggregate: 0, report: 0, interaction: 0 };
+  for (const r of bundle.records) counts[kind(r.capsule_id)]++;
+  const dc = {}; for (const d of res.disclosures) dc[d.status] = (dc[d.status] || 0) + 1;
+  head.appendChild($("div", "sub", counts.aggregate + " aggregate · " + counts.report + " daily reports · " + counts.interaction + " interaction capsules · disclosures " + Object.entries(dc).map(([k, v]) => v + " " + k).join(" · ")));
+  app.appendChild(head);
+
+  const node = (id, seen) => {
+    const k = kind(id);
+    const details = $("details", "node " + k);
+    if (k === "aggregate" || k === "report") details.setAttribute("open", "");
     const sum = $("summary");
-    sum.appendChild($("span","k "+k, k));
-    sum.appendChild($("span","seq", "seq "+(seqOf(id)||"?")));
-    sum.appendChild($("span","cid", id.slice(0,16)+"…"));
-    const ds = dstat[id]||{};
-    for (const m of Object.keys(ds)) { const t=$("span","m"); t.appendChild($("span","mn",m)); t.appendChild(badge(ds[m]==="disclosure_match"?"match":ds[m])); sum.appendChild(t); }
-    row.appendChild(sum);
-    const disclosed = (bundle.disclosures||{})[id]||{};
-    for (const m of Object.keys(disclosed)) {
-      row.appendChild($("div","mlabel","revealed "+m+":"));
-      row.appendChild($("pre","content", JSON.stringify(disclosed[m], null, 2)));
+    sum.appendChild($("span", "k " + k, k));
+    const s = seqOf(id); if (s != null) sum.appendChild($("span", "seq", "seq " + s));
+    sum.appendChild($("span", "cid", id.slice(0, 16) + "…"));
+    if (k === "missing") sum.appendChild(badge("declared missing"));
+    const ds = dstat[id] || {};
+    for (const m of Object.keys(ds).sort()) { const t = $("span", "m"); t.appendChild($("span", "mn", m)); t.appendChild(badge(ds[m] === "disclosure_match" ? "match" : ds[m])); sum.appendChild(t); }
+    details.appendChild(sum);
+    const revealed = disc[id] || {};
+    for (const m of Object.keys(revealed).sort()) {
+      details.appendChild($("div", "mlabel", "revealed " + m + ":"));
+      details.appendChild($("pre", "content", JSON.stringify(revealed[m], null, 2)));
     }
-    root.appendChild(row);
-  }
+    if (seen.has(id)) { details.appendChild($("div", "cycle", "(already shown above)")); return details; }
+    seen.add(id);
+    const kids = childrenOf(id);
+    if (kids.length) {
+      const box = $("div", "children");
+      for (const c of kids) box.appendChild(node(c, seen));
+      details.appendChild(box);
+    }
+    return details;
+  };
+  app.appendChild(node(bundle.root, new Set()));
 })();
 """
 
@@ -71,14 +89,16 @@ html = (
 '.claims{display:flex;gap:14px;flex-wrap:wrap}.claim{display:flex;gap:8px;align-items:center;background:#0f1220;padding:6px 12px;border-radius:8px}'
 '.lbl{color:#c7cbe6}'
 '.badge{font-weight:600;padding:2px 8px;border-radius:6px;text-transform:uppercase;font-size:11px}'
-'.pass,.match{background:#123a24;color:#57e389}.fail{background:#3a1216;color:#ff8a8a}.withheld{background:#3a3212;color:#e8d15a}'
-'.rec{margin:8px 24px;background:#171a2e;border:1px solid #2a2f4a;border-radius:8px;padding:6px 12px}'
-'.rec summary{cursor:pointer;display:flex;gap:12px;align-items:center;flex-wrap:wrap}'
+'.pass,.match{background:#123a24;color:#57e389}.fail{background:#3a1216;color:#ff8a8a}.withheld,.declared.missing{background:#3a3212;color:#e8d15a}'
+'.node{margin:6px 0 6px 0;background:#171a2e;border:1px solid #2a2f4a;border-radius:8px;padding:6px 12px}'
+'.node summary{cursor:pointer;display:flex;gap:12px;align-items:center;flex-wrap:wrap}'
+'.children{margin-left:22px;border-left:2px solid #2a2f4a;padding-left:12px}'
+'#app>.node{margin:14px 24px}'
 '.k{font-weight:700;padding:2px 8px;border-radius:6px;font-size:11px;text-transform:uppercase}'
-'.k.aggregate{background:#2a1e46;color:#c9a6ff}.k.report{background:#123049;color:#7cc4ff}.k.interaction{background:#22283f;color:#9aa0c0}'
+'.k.aggregate{background:#2a1e46;color:#c9a6ff}.k.report{background:#123049;color:#7cc4ff}.k.interaction{background:#22283f;color:#9aa0c0}.k.missing{background:#332;color:#e8d15a}'
 '.seq{color:#9aa0c0}.cid{font-family:ui-monospace,Menlo,monospace;color:#8890b8}'
 '.m{display:flex;gap:6px;align-items:center}.mn{color:#c7cbe6}'
-'.mlabel{color:#9aa0c0;margin:8px 0 2px}'
+'.mlabel{color:#9aa0c0;margin:8px 0 2px}.cycle{color:#8890b8;font-style:italic;margin:4px 0}'
 '.content{background:#0f1220;border:1px solid #2a2f4a;border-radius:6px;padding:10px;max-height:340px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;font-size:12px}'
 '.err{color:#ff8a8a;padding:24px}'
 '</style></head><body><div id="app"></div>'

@@ -4,21 +4,23 @@ the airline CLL, then assemble two Evidence Bundle v2 outputs:
   v2: reports + aggregate only (acts declared missing)                   -> URL permalink
 The judge verdicts were produced by isolated evidence-derived sub-agents; see verdicts.json."""
 import json, os, subprocess, sys, tempfile, datetime
-sys.path.insert(0, "/Users/ezhang/GitHub/agent-action-capsule/python")
-sys.path.insert(0, "/Users/ezhang/GitHub/checkpointed-local-log")
+# Point these at your local checkouts of the two reference libraries (or install
+# them and drop these inserts). Override via env for a non-default layout.
+sys.path.insert(0, os.environ.get("AAC_PY", os.path.expanduser("~/GitHub/agent-action-capsule/python")))
+sys.path.insert(0, os.environ.get("CLL_PY", os.path.expanduser("~/GitHub/checkpointed-local-log")))
 from agent_action_capsule.bundle import encode_fragment, decode_fragment, verify_bundle
 from agent_action_capsule.canonical import json_digest
 from cll.checkpoint import core
 from cll.checkpoint.store import MemoryNodeStore
 import sqlite3
 
-CAPSULECTL = "/tmp/capsulectl"
-PROFILE = "airlinedemo"
+CAPSULECTL = os.environ.get("CAPSULECTL", "capsulectl")
+PROFILE = os.environ.get("AAC_PROFILE", "airlinedemo")
 LOG_ID = "tau2-airline-20260914"
 DEMO = os.path.expanduser("~/.local/share/evaluation-runs/tau2-airline-eval")
 STORE = f"{DEMO}/store.db"
 BACKFILL = f"{DEMO}/backfill"
-OUT = os.path.expanduser("~/Downloads")
+OUT = os.environ.get("AAC_DEMO_OUT", os.path.expanduser("~/Downloads"))
 AXES = ["policy_compliance", "task_resolution", "grounded_communication"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 verdicts = json.load(open(os.path.join(HERE, "verdicts.json")))
@@ -35,6 +37,14 @@ seq_task = {}
 for i, fn in enumerate(files, start=1):
     # task-<id>-act-<NNNN>.json
     seq_task[i] = fn.split("-act-")[0].replace("task-", "")
+# The seq<->task mapping assumes the i-th sorted backfill file is CLL seq i (the
+# publish order). Validate it: the CLL must currently hold exactly the acts, so a
+# failed/duplicate publish or a pre-existing entry cannot silently shift attribution.
+_initial = cll_entries()
+assert len(_initial) == len(files), (
+    f"CLL has {len(_initial)} entries but {len(files)} backfill files; "
+    "seq<->task attribution would be wrong — re-run B1/B2 from a clean store"
+)
 
 def publish(request):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -46,8 +56,14 @@ def publish(request):
     return json.loads(out.stdout)
 
 def all_required_case(task_j):
-    # a case passes iff all three required axes pass
-    return "pass" if all(task_j[a]["status"] == "pass" for a in AXES) else "fail"
+    # all_required: drop not_applicable axes, then the case passes iff its remaining
+    # applicable required axes are a NONEMPTY set that all pass (any fail/unjudgeable
+    # fails the case; no applicable required axis is a fail, not a vacuous pass). This
+    # matches the cross-case rate math, which also excludes not_applicable.
+    applicable = [task_j[a]["status"] for a in AXES if task_j[a]["status"] != "not_applicable"]
+    if not applicable:
+        return "fail"
+    return "pass" if all(s == "pass" for s in applicable) else "fail"
 
 # ---- publish 3 daily reports ----
 report_ids = []
@@ -109,7 +125,8 @@ summary = {
     "cross_case_aggregation": "rate", "cohort": "claude-3-7-sonnet airline_default trial0",
     "source_selection": {"log_id": LOG_ID, "contributing_report_capsule_ids": report_ids},
     "per_axis": {a: {**counts[a], "pass_rate": rate(counts[a])} for a in AXES},
-    "counts": {"reports": len(report_ids), "unique_cases": 9},
+    "counts": {"reports": len(report_ids),
+               "unique_cases": len({t for day in verdicts["days"] for t in day["tasks"]})},
     "limitations": ["Weekly roll-up of 3 daily reports; per-axis rate over 9 conversations."],
 }
 req = {"spec_version": "capsule-seal-request/v1",
@@ -152,8 +169,10 @@ def disclosures_for(record_ids):
             df = f"{member}_digest"
             if df in ca and cid in arts and art in arts[cid]:
                 val = json.loads(arts[cid][art])
-                if json_digest(val) == ca[df]:
-                    d.setdefault(cid, {})[member] = val
+                if json_digest(val) != ca[df]:
+                    raise SystemExit(f"data-integrity error: stored {member} original for {cid} "
+                                     f"does not match its committed {df}")
+                d.setdefault(cid, {})[member] = val
     return d
 
 def assemble(record_ids, declared_missing):
@@ -185,17 +204,38 @@ for cid in report_agg:
     for r in caps[cid].get("references", []):
         if r.get("digest"): cited.add(r["digest"])
 missing_v2 = sorted(cited - set(report_agg))
+# v2's interval claim [first_seq,last_seq] requires a membership entry for every seq
+# in the range; the reports+aggregate must therefore be a contiguous seq range, or
+# an intervening/other append would leave a gap the verifier fails at. Assert it here
+# so a shifted publish order fails loudly at build time, not at verify time.
+report_seqs = sorted(seq_of[c] for c in report_agg)
+assert report_seqs == list(range(report_seqs[0], report_seqs[-1] + 1)), \
+    f"reports+aggregate are not a contiguous seq range ({report_seqs}); v2 interval coverage would fail"
 
 v1 = assemble(all_ids, [])
 v2 = assemble(report_agg, missing_v2)
 
-for name, b in [("v1 (all capsules)", v1), ("v2 (reports+aggregate only)", v2)]:
+# Gate: only write outputs if each bundle verifies to its EXPECTED shape. v1 is a
+# complete graph; v2 is declared-incomplete (acts missing) so its graph closure is
+# 'withheld'. Both must pass interval + membership, and every disclosure must match.
+def gate(name, b, expect_graph):
     r = verify_bundle(b)
     disc = {}
     for x in r.disclosures: disc[x.status] = disc.get(x.status, 0) + 1
     print(f"{name}: records={len(b['records'])} graph={r.graph_closure.status} "
           f"interval={r.interval_coverage.status} membership={r.per_record_membership.status} "
           f"disclosures={disc} missing={len(b['completeness']['missing'])}")
+    problems = []
+    if r.graph_closure.status != expect_graph: problems.append(f"graph_closure={r.graph_closure.status} (want {expect_graph})")
+    if r.interval_coverage.status != "pass": problems.append(f"interval_coverage={r.interval_coverage.status}")
+    if r.per_record_membership.status != "pass": problems.append(f"per_record_membership={r.per_record_membership.status}")
+    bad = [x.status for x in r.disclosures if x.status != "disclosure_match"]
+    if bad: problems.append(f"non-matching disclosures: {sorted(set(bad))}")
+    if problems:
+        raise SystemExit(f"refusing to emit {name}: " + "; ".join(problems))
+
+gate("v1 (all capsules)", v1, "pass")
+gate("v2 (reports+aggregate only)", v2, "withheld")
 
 frag1 = encode_fragment(v1); assert decode_fragment(frag1) == v1
 frag2 = encode_fragment(v2); assert decode_fragment(frag2) == v2
