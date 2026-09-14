@@ -10,6 +10,63 @@ publishes a new evaluation Capsule.
 - **Demo B – tau2**: a plain dataset, so its interactions are first **backfilled**
   into a local **SQLite** CLL, then evaluated exactly like Alchemy.
 
+## Evidence Bundle end-to-end (2026-09-14)
+
+The tau2 airline CLL was assembled into a spec-conformant **Evidence Bundle v2**
+and rendered clean in the fixed verify viewer, end to end through the canonical
+libraries. This exercises the format-4 record library, the CLL MMR proofs, the
+evidence-bundle verifier, and the browser viewer that now verifies through that
+same library instead of a hand-written copy.
+
+- Assembler: [`evidence-bundle/assemble.py`](evidence-bundle/assemble.py) reads
+  the airline store, walks the citation closure from the aggregate summary
+  (`388b87ca…`) over `references[]`, rebuilds the MMR from `cll_entries`,
+  attaches a real per-record inclusion proof to every record, builds the
+  completeness certificate, adds the bundle-level disclosure overlay from the
+  retained `agent_output` originals (disclose-all, `agent_input` suppressed),
+  and mints the fragment with the canonical codec. It verifies the bundle with
+  `agent_action_capsule.bundle.verify_bundle` before writing.
+- Local permalink: [`evidence-bundle/PERMALINK.txt`](evidence-bundle/PERMALINK.txt)
+  — a compact depth-1 bundle (the aggregate plus its 5 report capsules) at
+  `http://127.0.0.1:8080/bundle#…`.
+
+Verified results (Python reference and, independently, the browser viewer):
+
+- All three completeness claims pass **independently**: graph closure, interval
+  coverage, and **per-record membership** — the last is what a bare endpoint
+  range proof cannot show, so a deleted or replaced interior record is now
+  caught.
+- Every disclosed `agent_output` — including the **nested** report/aggregate
+  verdict objects — returns `disclosure_match`; every suppressed `agent_input`
+  renders **withheld, never blank**. The previously deployed viewer
+  false-mismatched exactly these nested payloads because it canonicalized with a
+  `JSON.stringify` replacer array that dropped nested keys; the viewer now
+  reuses the canonical recursive JCS digest and the mismatch is gone.
+- In a real browser on `/bundle`: 15 ✓, 0 ✕, drill-down from the aggregate to
+  the 5 reports.
+
+Reproduce:
+
+```sh
+# 1. build the viewer bundle (once) and start the fixed viewer
+( cd ~/GitHub/scitt-cose/viewer && npm ci && npm run build )
+( cd ~/GitHub/scitt-cose && \
+  PYTHONPATH=. uvicorn hosted_profiles.hosted:make_asgi_app --factory \
+    --host 127.0.0.1 --port 8080 )
+# 2. assemble the bundle + mint the permalink from the airline store
+PYTHONPATH=~/GitHub/agent-action-capsule/python:~/GitHub/checkpointed-local-log \
+  python demo/evidence-bundle/assemble.py
+# 3. open the URL in demo/evidence-bundle/PERMALINK.txt (the fragment carries the
+#    whole bundle; nothing else is fetched)
+```
+
+The full-run variant (all 112 records, aggregate → 5 reports → 106 interaction
+acts) assembles and verifies the same way; it is delivered as a file rather than
+a URL because the fragment is ~330 KB. Per-record inclusion proofs are computed
+by the assembler at assembly time, independent of each capsule's own
+`references[]`, so the bundle's membership claim holds even though the source
+records predate the filled-in coordinate convention.
+
 ## Prerequisites
 
 ```sh
@@ -123,45 +180,51 @@ The SQLite store keeps the artifact tables and the CLL log in one file
 only identity, the store path, and key-file **paths** plus trusted **public** keys —
 the ed25519 seed stays in its own `0600` file, never in the profile.
 
-### B2. Backfill tau2 interactions as Capsules
+### B2. Backfill tau2 interactions as Capsules (one Capsule per agent act)
 
 Backfill reads **only shipped tau2 results**: no agent run, no user simulator,
-**no model/LLM API key**, and nothing synthesized. tau2-bench is a runnable
-benchmark and ships its recorded runs under `data/tau2/results/final/*.json`;
-each file holds `simulations[]` for every `(task_id, trial)`, with the real agent
-+ user-simulator transcript. `demo/backfill/backfill.py` takes just the
-results file and an output dir, and writes one `capsule-seal-request/v1` per task
-(its trial-0 run) as `task-<id>.json`. The bound `payload` carries the real
-`agent_interaction` (transcript + tool calls, with each call's `requestor`
-attribution), a `case` block, and `provenance`. Domain is read from the results
-file; the Capsule's operator/developer are fixed backfill-provenance labels.
+**no model/LLM API key**, and nothing synthesized. tau2-bench ships its recorded runs
+under `data/tau2/results/final/*.json`; each file holds `simulations[]` for every
+`(task_id, trial)`, with the real agent + user-simulator transcript.
+
+`demo/backfill/backfill.py` writes **one `capsule-seal-request/v1` per agent act** —
+each `role="assistant"` turn of a trial-0 conversation — as
+`task-<id>-act-<NNNN>.json` (zero-padded so a conversation's acts publish in turn
+order). User turns and tool results are **not** their own Capsules; they are the act's
+inputs. Each act commits two authenticated originals:
+
+- `payload.agent_input` = `{policy, tools, messages}` — the policy in force, the agent's
+  observed tool surface, and every prior turn up to and including the latest user turn —
+  digest-committed as `model_attestation.compute_attestation.agent_input_digest`;
+- top-level `agent_output` = that assistant turn (text and/or `tool_calls`) —
+  digest-committed as `agent_output_digest`.
+
+There is **no `effect`/gate/decision** block: a write tool call is just part of
+`agent_output`, and its result becomes context in the next act's `agent_input`. The
+`case` block carries `task_id`, `trial`, a `conversation_id` (the tau2 simulation UUID),
+`turn_idx`, and `act_index`, so a conversation's acts are selected by
+`case.conversation_id` + `turn_idx` — never by assuming `seq == task`.
 
 ```sh
 TAU2=~/GitHub/tau2-bench            # cloned tau2-bench repo
 EC=~/GitHub/evaluation-compiler     # this repo
 RES="$TAU2/data/tau2/results/final/claude-3-7-sonnet-20250219_airline_default_gpt-4.1-2025-04-14_4trials.json"
-python3 "$EC/demo/backfill/backfill.py" --results "$RES" --out "$DEMO/backfill"
-# publish every backfilled interaction (one per task) as one CLL entry
-for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile airlinedemo --request "$f" >/dev/null; done
-capsulectl cll list --profile airlinedemo --after 0 --limit 1000 \
-  | python3 -c 'import sys,json;print("CLL entries:",len(json.load(sys.stdin)["entries"]))'
+# --conversations N keeps only the first N trial-0 conversations (omit for all 50)
+python3 "$EC/demo/backfill/backfill.py" --results "$RES" --out "$DEMO/backfill" --conversations 5
+# publish every act in filename (turn) order; each act is one CLL entry
+for f in $(ls "$DEMO"/backfill/*.json | sort); do capsulectl publish --profile airlinedemo --request "$f" >/dev/null; done
 ```
 
-The airline file backfills **50 tasks** → 50 CLL entries. Capsule IDs are
-content-addressed (JCS over the metadata and payload digest), so they do **not**
-depend on the signing key: **seq 1** = `56b1f95f…` (task 0), **seq 2** =
-`ec5b0c62…` (task 1, a 26-message conversation). CLL sequence follows the publish
-order — the shell glob over `task-*.json`, which is lexical (`task-0`, `task-1`,
-`task-10`, …, `task-2`), **not** `task_id` order — so beyond seq 1/2 the sequence
-number is not the task number; select a specific case by its capsule/`case.task_id`,
-not by assuming `seq == task`. `payload` is bound
-(`agent_input_digest`) and therefore authenticated. The desired outcome for judging
-is the task's declared `user_scenario.instructions`, which the judge reads
-independently from the dataset by `payload.case.task_id`. Neither it nor tau2's own
-`reward_info` (the benchmark's score, which the compiler does not consume) is placed
-in the bound payload. (To mirror Alchemy's split exactly one may instead set
-`capsule.effect` with `effect_request`/`effect_response` artifacts; the payload
-form above needs no manual digest computation.)
+The full airline file backfills to **762 acts across 50 conversations**; the
+`--conversations 5` slice used for the rest of this demo is **106 acts across 5
+conversations** (tasks 0, 1, 10, 11, 12), published as CLL **seq 1–106** in turn order.
+Capsule IDs are content-addressed (JCS over metadata + the payload/output digests), so
+they do **not** depend on the signing key: **seq 1** = `b67286cd…` (task 0, act 0000 —
+the opening greeting, whose `agent_input.messages` is legitimately empty). `capsulectl
+verify` on any act returns `Bound:true, Verified:true` for both the `payload` and
+`agent_output` artifacts. tau2's own `reward_info`/`evaluation_criteria` are stripped
+upstream and never enter the bound payload; the judge derives the desired outcome
+independently at B3.
 
 ### B3. Compile and run the evaluation
 
@@ -234,10 +297,11 @@ ID=$(capsulectl cll list --profile airlinedemo --after 50 --through 51 | python3
 capsulectl get --profile airlinedemo --capsule-id "$ID"
 ```
 
-Airline B3 has **not** been executed against this CLL yet, so no evaluation Capsule
-id or judgments are pinned (contrast Demo A, a pinned validated run). The judged
-system is the shipped `claude-3-7-sonnet` airline run (user simulator `gpt-4.1`);
-point `--results` at another tau2 results file to evaluate a different system.
+The judged system is the shipped `claude-3-7-sonnet` airline run (user simulator
+`gpt-4.1`); point `--results` at another tau2 results file to evaluate a different
+system. B3/B4 **have** been executed against the `--conversations 5` slice — the pinned
+ids and verdicts appear in B4/B5 below; a full 50-conversation run is the same steps at
+higher (paid) judge cost.
 
 ### B4. Aggregate across cases (cross-case roll-up)
 
@@ -278,6 +342,53 @@ Aggregating all 50 airline tasks means 50 per-case judge runs first (paid). The
 aggregation skill reduces whatever reports exist, so a subset is a valid summary as
 long as its contributing set (cohort + unique case/trial keys) is recorded.
 
+**Pinned run (`--conversations 5` slice).** Value proposition: *the agent resolves each
+request correctly, within airline policy, and communicates grounded, accurate
+information*; one outcome (`policy_compliant_resolution`) with three required axes —
+`policy_compliance`, `task_resolution`, `grounded_communication` — evidence-derived from
+`airline-data/policy.md` + `airline-data/db.json` + each transcript. Each report is one
+`evaluation-report/v1` Capsule (CLL **seq 107–111**) that binds its interaction acts
+through a `references[]` array (`citation_purpose: "acted_on"`, `digest` = act
+capsule_id) — the report→interaction provenance edge. The `evaluation-summary/v1`
+aggregate (**seq 112**, `c99a7e59…`) binds the five reports the same way (a fan-in
+`references[]`, not a single-parent `chain`). Per-axis pass rates: `policy_compliance`
+4/5, `task_resolution` 4/5, `grounded_communication` 3/5; **all-required cases 3/5**
+(tasks 0, 1, 10 held; task 11 failed `grounded_communication` — it quoted a $1,515
+refund but the executed change returned $5,244; task 12 failed all three — it upgraded
+both passengers when only one was authorized, churned, and reported ungrounded figures).
+
+### B5. Visualize and share — one permalink over the provenance graph
+
+The whole graph is one signed, digest-committed citation tree:
+`aggregate --references[]--> reports --references[]--> interaction acts`, with each act's
+`agent_input`/`agent_output` held as digests whose originals live in the artifact store.
+A reader opens **one permalink** and drills `aggregate → report → act`; the viewer
+(`verify.agentactioncapsule.org`, or a local instance) shares one references-aware
+drill-down across both routes.
+
+- **Range-proof bundle (`/bundle`, preferred).** `capsule-engine bundle --root
+  <aggregate_capsule_id> --with-viewer --verify-base-url <host>` roots at the aggregate,
+  follows chain+`references[]` to pull the whole closure, and adds the
+  Completeness/Cross-check + MMR range proof — the anti-cherry-pick guarantee that the
+  aggregate covers *all* its reports. This path runs on the Python `capsule_ledger`
+  stack (see note); it also writes a self-contained offline viewer, so a large graph
+  ships as a bundle **file** rather than a URL.
+- **Selective disclosure.** By default the permalink carries digests only; a
+  disclosure-envelope permalink (`capsule-emit permalink <capsule> --reveal
+  agent_input=… --reveal agent_output=… --base-url <host>`) reveals exactly the chosen
+  `agent_input`/`agent_output` while everything else stays a verifiable digest — the
+  viewer recomputes each disclosed value's digest against the sealed capsule (DE-3) before
+  rendering it. Only `agent_input`/`agent_output` are disclosable; effect preimages are not.
+
+> **Interop note.** `capsulectl` (Go) publishes into the SQLite CLL; `capsule-engine
+> bundle` reads a Python `capsule_ledger` ledger (a store directory or an imported
+> JSONL). Bundling the SQLite CLL therefore requires bridging the two (export the CLL to
+> a JSONL `capsule_ledger` imports, or publish through the Python stack). Where that
+> bridge is not yet wired, the same graph can be shared as a `/v/` array permalink built
+> directly from the capsules (`capsulectl get` each, then base64 the JSON array into
+> `…/v/<anchor>#<fragment>`); it drills down through the identical references-nav but
+> carries no MMR range proof and is URL-size-bounded (scope to a slice).
+
 ---
 
 ## Checkpointing and witnessing the CLL
@@ -285,6 +396,14 @@ long as its contributing set (cohort + unique case/trial keys) is recorded.
 `publish`/`cll append` only append entries — they do not witness or checkpoint.
 Anchoring the log is a separate, explicit `cll checkpoint` step. This applies to
 any CLL (SQLite `airlinedemo` here, or the MySQL `alchemy` profile).
+
+> **Note on sizes.** The `checkpoint`/`indexed_sequence`/`mmr_size` numbers quoted in
+> C1–C5 (`50`, `97`, `98`) are from the earlier **per-task** backfill (50 entries). With
+> the per-act backfill the CLL is larger — the `--conversations 5` slice used here is
+> **112 entries** (106 acts + 5 reports + 1 aggregate), and the full airline file is
+> 762+ acts — so a fresh `cll checkpoint` over this CLL yields a different, larger MMR
+> size. The mechanics (checkpoint = `2*n - popcount(n)`, offline re-verify, witness
+> round-trip) are unchanged; only the counts differ.
 
 ### C1. Local checkpoint (offline, no witness)
 

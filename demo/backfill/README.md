@@ -14,10 +14,15 @@ RES=~/GitHub/tau2-bench/data/tau2/results/final/claude-3-7-sonnet-20250219_airli
 python3 backfill.py --results "$RES" --out "$DEMO/backfill"
 ```
 
-It writes **one request per task — that task's trial-0 run** — named
-`task-<id>.json` (task ids are sanitized for the filesystem; the airline file
-yields 50, the retail file 114). Publish them all into a profile you have already
-created (see [demo/DEMO.md](../DEMO.md) for creating the `airlinedemo` profile):
+It writes **one request per agent act** — one per `role="assistant"` turn (the system
+under evaluation) in each task's trial-0 run — named `task-<id>-act-<NNNN>.json`
+(`NNNN` is the zero-padded act index in the conversation; task ids are sanitized for
+the filesystem). It is **not** one capsule per task and **not** one per raw message:
+the user-simulator (`role="user"`) turns and the tool results (`role="tool"`) are
+never their own capsules — they are inputs/outputs of the surrounding acts. The
+airline file yields **762 acts across 50 conversations**. Publish them all into a
+profile you have already created (see [demo/DEMO.md](../DEMO.md) for creating the
+`airlinedemo` profile):
 
 ```sh
 for f in "$DEMO"/backfill/*.json; do capsulectl publish --profile airlinedemo --request "$f"; done
@@ -30,20 +35,36 @@ simulation without a usable one is rejected rather than stamped with `now()`.
 
 ## Payload layout
 
-The bound `payload` carries the authenticated interaction:
+Each act request carries two payloads that `capsulectl publish` (capsule-cli →
+capsule-emit-go) commits as digests under `model_attestation.compute_attestation`
+(SHA-256 over RFC 8785 JCS), writing the original bytes to the artifact store as bound
+`present` artifacts:
 
-- `case`: `{benchmark, domain, task_id, trial}`
-- `provenance`: results file, agent LLM, user-simulator LLM, simulation id, seed,
-  termination reason
-- `agent_interaction`: `{messages: [...]}` — the real transcript (role, content,
-  tool calls and tool results, each with its `requestor` attribution), trimmed of
-  cost/usage/raw-data bookkeeping
+- `payload` → `agent_input_digest`. `payload` holds:
+  - `case`: `{benchmark, domain, task_id, trial, conversation_id, turn_idx, act_index}`
+    — `conversation_id` is the tau2 simulation UUID; a conversation's acts share it and
+    order by `turn_idx`.
+  - `provenance`: results file, agent LLM, user-simulator LLM, simulation id, seed,
+    termination reason.
+  - `agent_input`: `{policy, tools, messages}` — the model-invocation context the agent
+    saw before this act: the domain policy, the observed tool surface (distinct tools
+    the agent invoked in the conversation, derived from the transcript), and every prior
+    turn (greeting, user turns, earlier assistant turns, tool results, each trimmed of
+    cost/usage/raw-data bookkeeping and keeping `requestor` attribution) up to and
+    including the latest user turn.
+- `agent_output` → `agent_output_digest`: the assistant message this act produced — its
+  `content` and/or `tool_calls`.
 
-The gold outcome is deliberately excluded: neither the task's
-`evaluation_criteria` nor the simulation's `reward_info` goes in the payload. The
-judge reads the desired outcome independently from the dataset by
-`payload.case.task_id`, so it must never travel inside the bound payload.
+There are **no** effect blocks and **no** gate/decision layer. A write tool call is
+simply part of `agent_output`; its result becomes context in the next act's
+`agent_input`. The script computes no digest of its own — a second hashing path would
+be a bug.
 
-Capsule IDs are content-addressed (JCS over the metadata and payload digest), so
-publishing the same simulation reproduces the same Capsule ID regardless of the
-signing key.
+The gold outcome is deliberately excluded: neither the task's `evaluation_criteria`
+nor the simulation's `reward_info` goes in the payload. The judge reads the desired
+outcome independently from the dataset by `payload.case.task_id`, so it must never
+travel inside the bound payload.
+
+Capsule IDs are content-addressed (JCS over the metadata and the payload digests), so
+publishing the same act reproduces the same Capsule ID regardless of the signing key.
+`capsulectl verify` on a published act reports `Bound:true`, `Verified:true`, exit 0.

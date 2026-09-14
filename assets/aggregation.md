@@ -93,12 +93,22 @@ the dropped/skipped reports, verification references and limitations.
 
 Prepare a `capsule-seal-request/v1` request as specified in `capsule-cli.md`; AAC
 digest inputs reject floating-point numbers, so encode rates and any decimal metadata
-as decimal strings. Call `capsulectl publish`, then get the returned summary Capsule,
-verify its identity/signature/trust and bound payload, and read back its sequence from
-the target CLL. A summary reduces many reports, so it binds them through the enumerated
-contributing report Capsule IDs/sequences in its source selection (and composed members
-where the store records them), not through a single-parent `chain` block; the single-parent
-`chain` links a per-case report to the one source interaction it evaluated. The summary is
-itself an appended, checkpointable, witnessable Capsule.
+as decimal strings. A summary reduces many reports, so it binds them with a fan-in
+`references[]` array, never a single-parent `chain` block. Add one `References` entry per
+contributing report: `CitationPurpose` is `acted_on`, `Digest` is that report's
+`capsule_id`, and `LogCoordinates` carries the report's `LogID`, its ledger sequence as
+`LeafIndex`, and its `InclusionProof` when available. These references commit the exact
+contributing set into the summary's `capsule_id` under format 4, so adding, dropping, or
+swapping a report breaks verification, and the bundle walker follows every edge from the
+summary to each report (and onward, through each report's own `references[]`, to the
+interaction acts). Keep enumerating the same contributing report Capsule IDs and sequences
+in the payload's source selection for the human-readable record, but the binding that
+commits into `capsule_id` is `references[]`. The report→interaction link is itself a
+`references[]` (`acted_on`) edge, not a chain, so no single-parent chain appears anywhere
+in this evaluation provenance graph. Call `capsulectl publish`, then get the returned
+summary Capsule, verify its identity/signature/trust and bound payload, confirm it carries
+one `acted_on` reference per contributing report (each `digest` and `log_coordinates.leaf_index`
+matching a verified report in the frozen set), and read back its sequence from the target
+CLL. The summary is itself an appended, checkpointable, witnessable Capsule.
 Keep run data outside the distributed bundle. Report the summary Capsule ID/sequence,
 the contributing set, and any dropped reports or zero-denominator axes.
