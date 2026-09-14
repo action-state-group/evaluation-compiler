@@ -389,6 +389,25 @@ drill-down across both routes.
 > `…/v/<anchor>#<fragment>`); it drills down through the identical references-nav but
 > carries no MMR range proof and is URL-size-bounded (scope to a slice).
 
+### B6. Temporal minimized run — daily reports, end-of-week aggregate, two outputs
+
+A minimized, time-structured variant lives under [`week-eval/`](week-eval/README.md):
+**9 conversations** grouped **3 per day over 3 days**; each day the evaluator judges
+that day's 3 conversations into one `evaluation-report/v1` daily report, and end of
+week one `evaluation-summary/v1` aggregates the 3 daily reports.
+
+Because a bundle that **includes the interaction (act) capsules** with both members
+disclosed exceeds a browser's ~2 MB URL limit, the run emits **two outputs** (a
+permanent rule):
+
+- an **offline viewer HTML** carrying ALL capsules (acts + reports + aggregate) with
+  both `agent_input` and `agent_output` disclosed — opens and verifies with no network;
+- a small **URL permalink** carrying only the daily reports + weekly aggregate (the
+  acts declared missing), which stays under 2 MB and opens against the viewer.
+
+See [`week-eval/README.md`](week-eval/README.md) for the pipeline
+(`assemble_week.py`, `build_offline_html.py`, `verdicts.json`).
+
 ---
 
 ## Checkpointing and witnessing the CLL
