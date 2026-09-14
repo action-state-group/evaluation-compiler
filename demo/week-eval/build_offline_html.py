@@ -23,7 +23,6 @@ const badge = (s) => $("span", "badge " + s, s);
   const disc = bundle.disclosures || {};
   const specOf = (id) => { const ai = (disc[id] || {}).agent_input; return (ai && ai.spec_version) || ""; };
   const kind = (id) => { const s = specOf(id); return s.startsWith("evaluation-summary") ? "aggregate" : s.startsWith("evaluation-report") ? "report" : byId[id] ? "interaction" : "missing"; };
-  const missing = new Set((bundle.completeness || {}).missing || []);
   // disclosure status per (id, member)
   const dstat = {}; for (const d of res.disclosures) { (dstat[d.capsuleId] = dstat[d.capsuleId] || {})[d.member] = d.status; }
   // edges: a node cites its references[].digest (acted_on) and its chain parent

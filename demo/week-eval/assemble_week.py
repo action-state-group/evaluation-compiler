@@ -41,10 +41,9 @@ for i, fn in enumerate(files, start=1):
 # publish order). Validate it: the CLL must currently hold exactly the acts, so a
 # failed/duplicate publish or a pre-existing entry cannot silently shift attribution.
 _initial = cll_entries()
-assert len(_initial) == len(files), (
-    f"CLL has {len(_initial)} entries but {len(files)} backfill files; "
-    "seq<->task attribution would be wrong — re-run B1/B2 from a clean store"
-)
+if len(_initial) != len(files):  # not assert: must survive python -O
+    raise SystemExit(f"CLL has {len(_initial)} entries but {len(files)} backfill files; "
+                     "seq<->task attribution would be wrong — re-run B1/B2 from a clean store")
 
 def publish(request):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -209,8 +208,9 @@ missing_v2 = sorted(cited - set(report_agg))
 # an intervening/other append would leave a gap the verifier fails at. Assert it here
 # so a shifted publish order fails loudly at build time, not at verify time.
 report_seqs = sorted(seq_of[c] for c in report_agg)
-assert report_seqs == list(range(report_seqs[0], report_seqs[-1] + 1)), \
-    f"reports+aggregate are not a contiguous seq range ({report_seqs}); v2 interval coverage would fail"
+if report_seqs != list(range(report_seqs[0], report_seqs[-1] + 1)):  # not assert: survive python -O
+    raise SystemExit(f"reports+aggregate are not a contiguous seq range ({report_seqs}); "
+                     "v2 interval coverage would fail")
 
 v1 = assemble(all_ids, [])
 v2 = assemble(report_agg, missing_v2)
