@@ -225,6 +225,25 @@ def gate(name, b, expect_graph):
     print(f"{name}: records={len(b['records'])} graph={r.graph_closure.status} "
           f"interval={r.interval_coverage.status} membership={r.per_record_membership.status} "
           f"disclosures={disc} missing={len(b['completeness']['missing'])}")
+    # Version-skew hint (not a diagnosis): the demo's certificate uses the
+    # endpoint-boundary shape its shipped aac-verifier.js reads. A post-#100 aac
+    # at AAC_PY parses only the CLL #13 range-proof shape, so it cannot construct
+    # the certificate at all and reports `completeness_certificate_invalid` — that
+    # exact finding on an endpoint-shape cert is the skew signature. Surface it as
+    # a likely cause while preserving the real findings; any other interval
+    # failure (a genuinely bad proof under a compatible verifier) falls through to
+    # the normal report below.
+    cert_rp = b.get("completeness_certificate", {}).get("range_proof", {})
+    if "completeness_certificate_invalid" in r.interval_coverage.findings and "inclusion_from" in cert_rp:
+        raise SystemExit(
+            f"refusing to emit {name}: interval_coverage={r.interval_coverage.status} "
+            f"{list(r.interval_coverage.findings)}. Likely cause is a version skew — this demo's "
+            "certificate uses the endpoint-boundary shape (what the shipped aac-verifier.js reads), "
+            "which needs BOTH a pre-#100 agent_action_capsule (its _range_proof builds "
+            "RangeProof(inclusion_from, inclusion_to)) AND a pre-deb7617 cll (whose RangeProof still "
+            "has those fields). Point AAC_PY at a pre-#100 aac AND CLL_PY at a pre-#13 cll (e.g. "
+            "91d3414); pinning only one still yields completeness_certificate_invalid. If both are "
+            "already pre-#100/#13, this is a real certificate failure, not skew.")
     problems = []
     if r.graph_closure.status != expect_graph: problems.append(f"graph_closure={r.graph_closure.status} (want {expect_graph})")
     if r.interval_coverage.status != "pass": problems.append(f"interval_coverage={r.interval_coverage.status}")
