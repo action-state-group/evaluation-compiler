@@ -1915,7 +1915,7 @@
     }
   });
 
-  // ../../../agent-action-capsule/ts/node_modules/@action-state-group/cll/dist/chunk-MN3HRA2Y.js
+  // ../../../agent-action-capsule/ts/node_modules/@action-state-group/cll/dist/chunk-X37KTVJ5.js
   function shape(leaves) {
     const meta = [], peaks = [], positions = [];
     for (let i = 0; i < leaves; i += 1) {
@@ -2057,7 +2057,7 @@
       return;
     }
     if (leafStart >= lo && leafEnd <= hi) return;
-    const half = span >> 1;
+    const half = 2 ** (height - 1);
     rangeWitnesses(nodes, pos - span, height - 1, leafStart, lo, hi, out);
     rangeWitnesses(nodes, pos - 1, height - 1, leafStart + half, lo, hi, out);
   }
@@ -2088,7 +2088,8 @@
         return false;
       if (proof.size !== Number(size) || proof.from_index !== Number(fromIndex) || proof.to_index !== Number(toIndex))
         return false;
-      if (size < 0n || fromIndex < 0n || toIndex < fromIndex) return false;
+      if (size < 0n || size >= 2n ** 50n || fromIndex < 0n || toIndex < fromIndex)
+        return false;
       if (!Array.isArray(proof.witness) || !Array.isArray(bodyDigests))
         return false;
       if (BigInt(bodyDigests.length) !== toIndex - fromIndex + 1n) return false;
@@ -2112,7 +2113,7 @@
         }
         if (height === 0)
           return hash2(Uint8Array.of(0), bodyDigests[leafStart2 - lo]);
-        const half = span >> 1, left = await reconstruct(pos - span, height - 1, leafStart2), right = await reconstruct(pos - 1, height - 1, leafStart2 + half);
+        const half = 2 ** (height - 1), left = await reconstruct(pos - span, height - 1, leafStart2), right = await reconstruct(pos - 1, height - 1, leafStart2 + half);
         return parent(hash2, left, right, pos);
       };
       const reconstructedPeaks = [];
@@ -2129,8 +2130,8 @@
     }
   }
   var ok, same, be64, parent, toHex, hex, MmrTree;
-  var init_chunk_MN3HRA2Y = __esm({
-    "../../../agent-action-capsule/ts/node_modules/@action-state-group/cll/dist/chunk-MN3HRA2Y.js"() {
+  var init_chunk_X37KTVJ5 = __esm({
+    "../../../agent-action-capsule/ts/node_modules/@action-state-group/cll/dist/chunk-X37KTVJ5.js"() {
       init_cborg();
       ok = (x) => x.length === 32;
       same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -2288,7 +2289,7 @@
   var join, hash, MmrTree2, rootFromPeaks2, verifyInclusionValue2, verifyHexInclusion2, verifyConsistency2, verifyRange2;
   var init_browser = __esm({
     "../../../agent-action-capsule/ts/node_modules/@action-state-group/cll/dist/browser.js"() {
-      init_chunk_MN3HRA2Y();
+      init_chunk_X37KTVJ5();
       join = (...parts) => {
         const value = new Uint8Array(
           parts.reduce((length, part) => length + part.length, 0)
@@ -3053,8 +3054,9 @@
     };
   }
   async function rangeValid(root, first, last, certificate, proof) {
+    const leaves = leafCount(BigInt(proof.size));
     const raw = certificate.body_digests;
-    if (proof.fromSeq !== first || proof.toSeq !== last || proof.fromIndex !== first - 1 || proof.toIndex !== last - 1 || !Array.isArray(raw) || raw.length !== last - first + 1 || !raw.every(isHex64))
+    if (leaves === void 0 || leaves !== BigInt(last) || proof.fromSeq !== first || proof.toSeq !== last || proof.fromIndex !== first - 1 || proof.toIndex !== last - 1 || !Array.isArray(raw) || raw.length !== last - first + 1 || !raw.every(isHex64))
       return false;
     return verifyRange2(root, BigInt(proof.size), BigInt(proof.fromIndex), BigInt(proof.toIndex), raw.map(hex2), proof.proof);
   }
