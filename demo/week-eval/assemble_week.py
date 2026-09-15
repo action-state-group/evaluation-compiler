@@ -174,17 +174,21 @@ def disclosures_for(record_ids):
                 d.setdefault(cid, {})[member] = val
     return d
 
+id_by_seq = {seq: cid for seq, cid in ents}
+
 def assemble(record_ids, declared_missing):
     record_ids = sorted(record_ids, key=lambda c: seq_of[c])
     first_seq, last_seq = seq_of[record_ids[0]], seq_of[record_ids[-1]]
     memberships = {cid: {"log_coordinates": {"log_id": LOG_ID, "seq": seq_of[cid], "leaf_index": seq_of[cid] - 1},
                          "inclusion_proof": proof_dict(core.inclusion_proof(nodes, seq_of[cid] - 1, size))}
                    for cid in record_ids}
+    # CLL #13 range membership: every leaf in [first_seq, last_seq] participates
+    # via the ordered body_digests + flat witness, matching the realigned verifiers.
+    rp = core.range_proof(nodes, first_seq - 1, last_seq - 1, size)
     cert = {"log_id": LOG_ID, "range_root": root_hash.hex(), "first_seq": first_seq, "last_seq": last_seq,
-            "first_digest": record_ids[0], "last_digest": record_ids[-1],
+            "body_digests": [id_by_seq[s] for s in range(first_seq, last_seq + 1)],
             "range_proof": {"from_seq": first_seq, "to_seq": last_seq, "size": size,
-                            "inclusion_from": proof_dict(core.inclusion_proof(nodes, first_seq - 1, size)),
-                            "inclusion_to": proof_dict(core.inclusion_proof(nodes, last_seq - 1, size))},
+                            "from_index": rp.from_index, "to_index": rp.to_index, "witness": list(rp.witness)},
             "memberships": memberships}
     return {"bundle_version": "2", "bundle_kind": "evidence-bundle/v2", "root": agg_id,
             "records": [caps[c] for c in record_ids],
@@ -225,25 +229,6 @@ def gate(name, b, expect_graph):
     print(f"{name}: records={len(b['records'])} graph={r.graph_closure.status} "
           f"interval={r.interval_coverage.status} membership={r.per_record_membership.status} "
           f"disclosures={disc} missing={len(b['completeness']['missing'])}")
-    # Version-skew hint (not a diagnosis): the demo's certificate uses the
-    # endpoint-boundary shape its shipped aac-verifier.js reads. A post-#100 aac
-    # at AAC_PY parses only the CLL #13 range-proof shape, so it cannot construct
-    # the certificate at all and reports `completeness_certificate_invalid` — that
-    # exact finding on an endpoint-shape cert is the skew signature. Surface it as
-    # a likely cause while preserving the real findings; any other interval
-    # failure (a genuinely bad proof under a compatible verifier) falls through to
-    # the normal report below.
-    cert_rp = b.get("completeness_certificate", {}).get("range_proof", {})
-    if "completeness_certificate_invalid" in r.interval_coverage.findings and "inclusion_from" in cert_rp:
-        raise SystemExit(
-            f"refusing to emit {name}: interval_coverage={r.interval_coverage.status} "
-            f"{list(r.interval_coverage.findings)}. Likely cause is a version skew — this demo's "
-            "certificate uses the endpoint-boundary shape (what the shipped aac-verifier.js reads), "
-            "which needs BOTH a pre-#100 agent_action_capsule (its _range_proof builds "
-            "RangeProof(inclusion_from, inclusion_to)) AND a pre-deb7617 cll (whose RangeProof still "
-            "has those fields). Point AAC_PY at a pre-#100 aac AND CLL_PY at a pre-#13 cll (e.g. "
-            "91d3414); pinning only one still yields completeness_certificate_invalid. If both are "
-            "already pre-#100/#13, this is a real certificate failure, not skew.")
     problems = []
     if r.graph_closure.status != expect_graph: problems.append(f"graph_closure={r.graph_closure.status} (want {expect_graph})")
     if r.interval_coverage.status != "pass": problems.append(f"interval_coverage={r.interval_coverage.status}")

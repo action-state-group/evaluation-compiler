@@ -5,17 +5,13 @@ A minimized, time-structured run of the tau2-airline evaluation: **9 conversatio
 evaluator judges that day's 3 conversations into ONE `evaluation-report/v1` daily
 report; at end of week one `evaluation-summary/v1` aggregates the 3 daily reports.
 
-> **aac version note.** The committed bundles and the shipped offline verifier
-> (`aac-verifier.js`) use the **endpoint-boundary** completeness-certificate shape.
-> The Python `agent_action_capsule` at `AAC_PY` has since realigned to the CLL #13
-> range-proof shape (aac #100), so `assemble_week.py`'s Python gate reports
-> `completeness_certificate_invalid` against a post-#100 checkout (the gate names
-> this cause explicitly). To re-run the assembler you must pin **both** references
-> back: `AAC_PY` at a pre-#100 aac **and** `CLL_PY` at a pre-`deb7617` cll (e.g.
-> `91d3414`) — the endpoint-shape `_range_proof` builds
-> `RangeProof(inclusion_from, inclusion_to)`, fields the merged CLL #13 dataclass
-> no longer has, so pinning only one still fails. The whole demo moves to the
-> CLL #13 shape once aac's TS bundle verifier lands it (the deferred Go/TS step).
+> **Completeness shape.** The committed bundles, the shipped offline verifier
+> (`aac-verifier.js`), and the `assemble_week.py` producer all use the CLL #13
+> per-record range-proof certificate (`body_digests` + a flat
+> `from_index`/`to_index`/`witness`), matching the realigned Python/Go/TS
+> verifiers. Both committed bundles verify green under the Python verifier and the
+> browser `aac-verifier.js` (v2's graph closure is `withheld`, the honest state
+> for the interaction capsules it declares missing).
 
 ## Pipeline
 
