@@ -14,15 +14,16 @@ Create the local `airlinedemo` profile before following
 [backfill/README.md](backfill/README.md). Use a dedicated local store and two
 separate Ed25519 seeds: one to publish Capsules and one to sign checkpoints.
 Keep both seed files outside this repository. Obtain each public key with
-`capsulectl key show-public`; the profile must trust each corresponding signer.
+`capsulectl key show-public` and extract its JSON `public_key` with `jq` (required
+for this setup); the profile must trust each corresponding signer.
 
 ```sh
 DEMO_STORE="$HOME/.local/share/evaluation-runs/tau2-airline-eval/store"
 mkdir -p "$DEMO_STORE"
 capsulectl key generate --output "$DEMO_STORE/producer-seed.hex"
 capsulectl key generate --output "$DEMO_STORE/checkpoint-seed.hex"
-PRODUCER_PUBLIC_KEY=$(capsulectl key show-public "$DEMO_STORE/producer-seed.hex")
-CHECKPOINT_PUBLIC_KEY=$(capsulectl key show-public "$DEMO_STORE/checkpoint-seed.hex")
+PRODUCER_PUBLIC_KEY=$(capsulectl key show-public "$DEMO_STORE/producer-seed.hex" | jq -r .public_key)
+CHECKPOINT_PUBLIC_KEY=$(capsulectl key show-public "$DEMO_STORE/checkpoint-seed.hex" | jq -r .public_key)
 capsulectl profile create --name airlinedemo --type sqlite \
   --sqlite-path "$DEMO_STORE/airlinedemo.sqlite" --namespace airlinedemo \
   --log-id tau2-airline-20260914 \

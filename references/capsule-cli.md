@@ -36,8 +36,7 @@ application payload is placed in `payload`.
       "Type": "agent-action-capsule",
       "DigestAlg": "SHA-256",
       "Digest": "CAPSULE_ID",
-      "CitationPurpose": "acted_on",
-      "LogCoordinates": {"log_id": "LOG_ID", "sequence": 42}
+      "CitationPurpose": "acted_on"
     }]
   },
   "payload": {"spec_version": "example/v1"}
@@ -45,7 +44,8 @@ application payload is placed in `payload`.
 ```
 
 Use one `References` entry for each cited Capsule. `CitationPurpose` states why
-it is cited, and `LogCoordinates` records its source log and sequence. A request
+it is cited. `LogCoordinates` is optional; if present, it must include `log_id`, `leaf_index`, and `inclusion_proof`.
+A request
 may instead use `capsule.Chain` for one store-checked parent relation; do not use
 it to replace a multi-Capsule citation set.
 
