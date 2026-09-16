@@ -10,9 +10,30 @@ an `evaluation-summary/v1`. It is demonstration material, not compiler input.
 (cd ~/GitHub/capsule-cli && go build -o /tmp/capsulectl ./cmd/capsulectl)
 ```
 
-Create the local `airlinedemo` profile and backfill a fresh small airline slice as
-described in [backfill/README.md](backfill/README.md). The profile needs its normal
-producer key and a checkpoint signing key.
+Create the local `airlinedemo` profile before following
+[backfill/README.md](backfill/README.md). Use a dedicated local store and two
+separate Ed25519 seeds: one to publish Capsules and one to sign checkpoints.
+Keep both seed files outside this repository. Obtain each public key with
+`capsulectl key show-public`; the profile must trust each corresponding signer.
+
+```sh
+DEMO_STORE="$HOME/.local/share/evaluation-runs/tau2-airline-eval/store"
+mkdir -p "$DEMO_STORE"
+capsulectl key generate --output "$DEMO_STORE/producer-seed.hex"
+capsulectl key generate --output "$DEMO_STORE/checkpoint-seed.hex"
+PRODUCER_PUBLIC_KEY=$(capsulectl key show-public "$DEMO_STORE/producer-seed.hex")
+CHECKPOINT_PUBLIC_KEY=$(capsulectl key show-public "$DEMO_STORE/checkpoint-seed.hex")
+capsulectl profile create --name airlinedemo --type sqlite \
+  --sqlite-path "$DEMO_STORE/airlinedemo.sqlite" --namespace airlinedemo \
+  --log-id tau2-airline-20260914 \
+  --signing-key-file "$DEMO_STORE/producer-seed.hex" --trusted-key "$PRODUCER_PUBLIC_KEY" \
+  --checkpoint-signing-key-file "$DEMO_STORE/checkpoint-seed.hex" \
+  --checkpoint-trusted-key "$CHECKPOINT_PUBLIC_KEY"
+capsulectl store init --profile airlinedemo
+```
+
+The checkpoint signer is required by `capsulectl cll checkpoint create`, which
+must run after the final append and before `view`.
 
 ## B5. Render the provenance graph
 

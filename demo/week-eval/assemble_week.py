@@ -48,18 +48,32 @@ def main():
     # Act attribution comes from committed case.conversation_id + turn_idx, never
     # from CLL sequence or the lexical order of backfill filenames.
     acts = {}
+    cases_by_conversation = {}
     for cid, body in records():
         case = body.get("case", {})
-        if case.get("conversation_id") is not None and case.get("turn_idx") is not None: acts.setdefault(str(case.get("task_id")), []).append(cid)
+        if case.get("conversation_id") is not None and case.get("turn_idx") is not None:
+            conversation_id = str(case["conversation_id"])
+            known = cases_by_conversation.setdefault(conversation_id, case)
+            if known.get("task_id") != case.get("task_id") or known.get("trial") != case.get("trial"):
+                raise SystemExit(f"inconsistent case identity for conversation {conversation_id}")
+            acts.setdefault(conversation_id, {}).setdefault(int(case["turn_idx"]), set()).add(cid)
     for day in days:
         cases, act_ids = [], []
         for task_id, judgment in day["tasks"].items():
-            selected = acts.get(str(task_id), [])
+            matching_conversations = [conversation_id for conversation_id, case in cases_by_conversation.items() if str(case.get("task_id")) == str(task_id)]
+            if len(matching_conversations) != 1:
+                raise SystemExit(f"expected exactly one conversation for task {task_id}; found {len(matching_conversations)}")
+            conversation_id = matching_conversations[0]
+            duplicate_turns = [turn_idx for turn_idx, capsule_ids in acts[conversation_id].items() if len(capsule_ids) != 1]
+            if duplicate_turns:
+                raise SystemExit(f"ambiguous duplicate acts for conversation {conversation_id} turns {sorted(duplicate_turns)}")
+            selected = [cid for _, capsule_ids in sorted(acts[conversation_id].items()) for cid in sorted(capsule_ids)]
             if not selected: raise SystemExit(f"no acts selected by case.conversation_id/turn_idx for task {task_id}")
             act_ids.extend(selected)
-            cases.append({"task_id": task_id, "trial": 0, "axis_judgments": [{"axis_id": axis, "outcome_id": "policy_compliant_resolution", **judgment[axis]} for axis in AXES], "case_aggregate": aggregate(judgment)})
+            case = cases_by_conversation[conversation_id]
+            cases.append({"task_id": task_id, "trial": case["trial"], "conversation_id": conversation_id, "axis_judgments": [{"axis_id": axis, "outcome_id": "policy_compliant_resolution", **judgment[axis]} for axis in AXES], "case_aggregate": aggregate(judgment)})
         passed = sum(c["case_aggregate"] == "pass" for c in cases)
-        report = {"spec_version":"evaluation-report/v1", "date":day["date"], "evaluation_identity":{"evaluator":"tau2-airline-eval","run":f"day-{day['day']}","judged_at":day["date"]}, "scenario":"tau2-airline policy-compliant resolution (daily)", "cases":cases, "source_selection":{"log_id":LOG_ID,"conversations":list(day["tasks"]),"interaction_capsule_ids":act_ids}, "daily_aggregate":{"policy":"all_required","cases_total":len(cases),"cases_pass":passed,"verdict":"pass" if passed == len(cases) else "fail"}, "limitations":["Demo fixture judgments; acts selected from committed case conversation_id and turn_idx."]}
+        report = {"spec_version":"evaluation-report/v1", "date":day["date"], "evaluation_identity":{"evaluator":"tau2-airline-eval","run":f"day-{day['day']}","judged_at":day["date"]}, "scenario":"tau2-airline policy-compliant resolution (daily)", "cases":cases, "source_selection":{"log_id":LOG_ID,"conversations":[case["conversation_id"] for case in cases],"interaction_capsule_ids":act_ids}, "daily_aggregate":{"policy":"all_required","cases_total":len(cases),"cases_pass":passed,"verdict":"pass" if passed == len(cases) else "fail"}, "limitations":["Demo fixture judgments; acts selected from committed case conversation_id and turn_idx."]}
         req = {"spec_version":"capsule-seal-request/v1", "capsule":{"ActionID":f"tau2-airline-eval-{day['date']}","ActionType":"fyi","Operator":"ACME-AIR","Developer":"tau2-airline-eval@v1","Timestamp":f"{day['date']}T18:00:00Z","References":[{"Type":"agent-action-capsule","DigestAlg":"SHA-256","Digest":cid,"CitationPurpose":"acted_on"} for cid in act_ids]}, "payload":report}
         print("DAILY_REPORT_CAPSULE_ID=" + publish(req))
     start, end = month_bounds(args.month)

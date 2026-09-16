@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse, hashlib, json, os, subprocess, tempfile
 from decimal import Decimal
+
 CAPSULECTL=os.environ.get("CAPSULECTL","capsulectl"); PROFILE=os.environ.get("AAC_PROFILE","airlinedemo")
 def cli(*args):
  p=subprocess.run([CAPSULECTL,*args],text=True,capture_output=True)
@@ -33,7 +34,8 @@ def decimal(value): return format(Decimal(str(value)).quantize(Decimal(".0001"))
 def main():
  ap=argparse.ArgumentParser(); ap.add_argument("--month",default="2026-09"); ap.add_argument("--seed",default="demo-synthetic-v1"); args=ap.parse_args()
  strata={"judge_pass":[],"judge_fail":[]}
- for cid,report in reports(args.month):
+ monthly_reports=reports(args.month)
+ for cid,report in monthly_reports:
   verdict=report.get("daily_aggregate",{}).get("verdict")
   if verdict in ("pass","fail"): strata["judge_"+verdict].append(cid)
  for ids in strata.values(): ids.sort(key=lambda cid:(hashlib.sha256(len(args.seed.encode()).to_bytes(4,"big")+args.seed.encode()+cid.encode()).hexdigest(),cid))
@@ -47,8 +49,9 @@ def main():
    rating={"spec_version":"human-rating/v1","synthetic":True,"label":"illustrative synthetic rating; not a human judgment","rated_quantity":"daily_aggregate","verdict":verdict,"blind":False,"rater":{"role":"synthetic-demo-generator","id":"synthetic"},"sampling":{"stratum":stratum,"audited_report_capsule_id":cid,"sample_manifest_capsule_id":manifest_id}}
    ratings.append((stratum,verdict,publish(req("tau2-airline-synthetic-rating-"+cid[:16],args.month+"-28T20:01:00Z",rating,{"ParentCapsuleID":cid,"Relation":"io.evaluation.human_rates"}))))
  usable={s:[v for st,v,_ in ratings if st==s and v!="unsure"] for s in strata}
- fp=sum(v=="fail" for v in usable["judge_pass"])/len(usable["judge_pass"]) if usable["judge_pass"] else 0
- ff=sum(v=="pass" for v in usable["judge_fail"])/len(usable["judge_fail"]) if usable["judge_fail"] else 0
- summary={"spec_version":"calibration-summary/v1","synthetic":True,"label":"illustrative synthetic calibration only; replace with blind human ratings","period_window":args.month,"audited_quantity":"daily_aggregate","sampling":{"N_p":len(strata["judge_pass"]),"N_f":len(strata["judge_fail"]),"n_p":len(selected["judge_pass"]),"n_f":len(selected["judge_fail"]),"m_p":len(usable["judge_pass"]),"m_f":len(usable["judge_fail"]),"sample_manifest_capsule_id":manifest_id},"estimates":{"false_pass_rate":{"estimate":decimal(fp),"ci_95":"[0.0000,1.0000]"},"false_fail_rate":{"estimate":decimal(ff),"ci_95":"[0.0000,1.0000]"}},"nonresponse":{"unsure":sum(v=="unsure" for _,v,_ in ratings)},"drift":{"status":"not_available","reason":"single illustrative period"},"limitations":["Synthetic ratings are not human evidence.","Small demo samples have deliberately wide confidence intervals."]}
+ def estimate(values,event,stratum):
+  if not values: return {"estimated":False,"estimate":None,"note":f"not estimated: no usable ratings in {stratum} stratum"}
+  return {"estimated":True,"estimate":decimal(sum(value==event for value in values)/len(values)),"ci_95":{"lower":"0.0000","upper":"1.0000"}}
+ summary={"spec_version":"calibration-summary/v1","synthetic":True,"label":"illustrative synthetic calibration only; replace with blind human ratings","period_window":args.month,"audited_quantity":"daily_aggregate","sampling":{"N_p":len(strata["judge_pass"]),"N_f":len(strata["judge_fail"]),"n_p":len(selected["judge_pass"]),"n_f":len(selected["judge_fail"]),"m_p":len(usable["judge_pass"]),"m_f":len(usable["judge_fail"]),"sample_manifest_capsule_id":manifest_id},"source_selection":{"contributing_report_capsule_ids":[cid for cid,_ in monthly_reports],"contributing_human_rating_capsule_ids":[rating_id for _,_,rating_id in ratings]},"estimates":{"false_pass_rate":estimate(usable["judge_pass"],"fail","judge_pass"),"false_fail_rate":estimate(usable["judge_fail"],"pass","judge_fail")},"nonresponse":{"unsure":sum(v=="unsure" for _,v,_ in ratings)},"drift":{"status":"not_available","reason":"single illustrative period"},"limitations":["Synthetic ratings are not human evidence.","Small demo samples have deliberately wide confidence intervals."]}
  print("CALIBRATION_SUMMARY_CAPSULE_ID="+publish(req("tau2-airline-synthetic-calibration-"+args.month,args.month+"-28T20:02:00Z",summary)))
 if __name__=="__main__": main()
