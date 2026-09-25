@@ -24,7 +24,7 @@ way.
 - [`references/capsule-cli.md`](references/capsule-cli.md) — the Capsule CLI contract
   copied verbatim into bundles.
 - [`demo/`](demo/) — a self-contained demonstration, **not** compiler input. It holds
-  `demo/DEMO.md` (end-to-end reproductions: an Alchemy investigation over an existing
+  `demo/DEMO.md` (end-to-end reproductions: an investigation over an existing
   CLL, and a tau2 customer-service evaluation over a local SQLite CLL — compile →
   backfill → run → aggregate — plus an offline CLL checkpoint and the witness
   procedure), `demo/slides/`,

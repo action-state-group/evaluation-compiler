@@ -6,9 +6,9 @@ a scenario + value proposition into an evaluation-skill bundle, and the bundle's
 host agent selects, verifies, extracts (three isolated contexts), judges, and
 publishes a new evaluation Capsule.
 
-- **Demo A – Alchemy**: the CLL already exists (production investigations).
+- **Demo A – Investigation**: the CLL already exists (production investigations).
 - **Demo B – tau2**: a plain dataset, so its interactions are first **backfilled**
-  into a local **SQLite** CLL, then evaluated exactly like Alchemy.
+  into a local **SQLite** CLL, then evaluated exactly like Demo A.
 
 ## Prerequisites
 
@@ -23,8 +23,8 @@ BIN="$(go env GOBIN)"; GOPATH="$(go env GOPATH)"; rm -f "${BIN:-${GOPATH%%:*}/bi
 capsulectl --version    # capsulectl version 0.1.0-dev
 ```
 
-- Demo A: the `alchemy` MySQL profile configured, and `gh` authenticated for
-  `github.ibm.com` (independent business evidence).
+- Demo A: the `investigations` MySQL profile configured, and `gh` authenticated for
+  `tracker.example.com` (independent business evidence).
 - Demo B: no database server — SQLite is a single local file. tau2 dataset at
   `~/GitHub/tau2-bench/data/tau2/domains/…` and the shipped benchmark runs at
   `~/GitHub/tau2-bench/data/tau2/results/final/…` (plain-tracked JSON; the airline
@@ -33,31 +33,31 @@ capsulectl --version    # capsulectl version 0.1.0-dev
 
 ---
 
-## Demo A — Alchemy investigation (existing CLL)
+## Demo A — Investigation (existing CLL)
 
 Value proposition: *"Under limited evidence, reduce ticket uncertainty and guide
 the handler to the correct next step faster and more safely."* Evaluation unit:
 one investigation trigger/run. `target_mode=evidence_derived`, `aggregation=none`.
 
 1. **Compile the bundle.** Invoke the `evaluation-compiler` skill with the scenario
-   above and the access facts (profile `alchemy`). It writes the bundle to
-   `~/.local/share/evaluation-bundles/alchemy-investigation/`
+   above and the access facts (profile `investigations`). It writes the bundle to
+   `~/.local/share/evaluation-bundles/investigation/`
    (`SKILL.md`, `axes.json`, `resolved-spec.json`, `references/{source,execution,capsule-cli}.md`).
    `capsulectl` is a host prerequisite on `PATH`, not part of the bundle.
 
 2. **Run the generated skill** in a fresh agent, passing only runtime inputs:
-   `profile=alchemy`, `selection=(164,165]`, `run_dir=<private dir outside the bundle>`.
+   `profile=investigations`, `selection=(164,165]`, `run_dir=<private dir outside the bundle>`.
    The skill performs, using `capsulectl` and `gh`:
 
    ```sh
-   capsulectl cll list --profile alchemy --after 164 --through 165 --limit 1000
-   ID=$(capsulectl cll list --profile alchemy --after 164 --through 165 --limit 1000 | python3 -c 'import sys,json;print(json.load(sys.stdin)["entries"][-1]["capsule_id"])')
-   capsulectl get    --profile alchemy --capsule-id "$ID" --raw --output rec.json
-   capsulectl verify --profile alchemy --capsule rec.json      # identity/signature/bindings
-   gh api --hostname github.ibm.com /repos/lakehouse/tracker/issues/82049
-   gh api --hostname github.ibm.com /repos/lakehouse/tracker/issues/82049/comments
+   capsulectl cll list --profile investigations --after 164 --through 165 --limit 1000
+   ID=$(capsulectl cll list --profile investigations --after 164 --through 165 --limit 1000 | python3 -c 'import sys,json;print(json.load(sys.stdin)["entries"][-1]["capsule_id"])')
+   capsulectl get    --profile investigations --capsule-id "$ID" --raw --output rec.json
+   capsulectl verify --profile investigations --capsule rec.json      # identity/signature/bindings
+   gh api --hostname tracker.example.com /repos/example-org/tracker/issues/82049
+   gh api --hostname tracker.example.com /repos/example-org/tracker/issues/82049/comments
    # three isolated sub-agents: desired outcome, agent outcome, judge
-   capsulectl publish --profile alchemy --request seal-request.json
+   capsulectl publish --profile investigations --request seal-request.json
    # read back the new evaluation Capsule: capsulectl get + verify + cll list
    ```
 
@@ -159,7 +159,7 @@ not by assuming `seq == task`. `payload` is bound
 is the task's declared `user_scenario.instructions`, which the judge reads
 independently from the dataset by `payload.case.task_id`. Neither it nor tau2's own
 `reward_info` (the benchmark's score, which the compiler does not consume) is placed
-in the bound payload. (To mirror Alchemy's split exactly one may instead set
+in the bound payload. (To mirror Demo A's split exactly one may instead set
 `capsule.effect` with `effect_request`/`effect_response` artifacts; the payload
 form above needs no manual digest computation.)
 
@@ -284,7 +284,7 @@ long as its contributing set (cohort + unique case/trial keys) is recorded.
 
 `publish`/`cll append` only append entries — they do not witness or checkpoint.
 Anchoring the log is a separate, explicit `cll checkpoint` step. This applies to
-any CLL (SQLite `airlinedemo` here, or the MySQL `alchemy` profile).
+any CLL (SQLite `airlinedemo` here, or the MySQL `investigations` profile).
 
 ### C1. Local checkpoint (offline, no witness)
 
@@ -342,7 +342,7 @@ The pinned authority public key is
 `39bb654c9dc0afe1c0edef0deffaa69099b8518836c9ba26e0491535840f96b5` (`key_id`
 `19a9ab3e02fad55c`); re-resolve from `/anchor/authority-pubkey` or
 `/.well-known/did.json` if it rotates. For an *enrolled* production log, e.g.
-`alchemy`, set the same checkpoint endpoint and public-key fields here with your
+`investigations`, set the same checkpoint endpoint and public-key fields here with your
 enrolled witness key (alongside the checkpoint signing/trusted keys from C1).
 
 ### C3. Publish the checkpoint to the witness and check status

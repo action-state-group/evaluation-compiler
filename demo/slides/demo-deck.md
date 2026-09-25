@@ -23,7 +23,7 @@ executable **evaluation skill**, run it over a **CLL** of recorded agent
 interactions, and publish a **signed, verifiable evaluation report Capsule**.
 
 Two demos:
-- **A — Alchemy**: evaluate a production investigation (CLL already exists)
+- **A — Investigation**: evaluate a production investigation (CLL already exists)
 - **B — tau2**: evaluate a public benchmark (backfill a local CLL first) — *live*
 
 ---
@@ -318,7 +318,7 @@ axis_judgments (one entry per compiled axis; produced by running Prompt 2):
 
 → signed `evaluation-report/v1` Capsule at **seq 51**, verifiable offline;
 desired/agent/judge each run in an **isolated context**. Airline B3 is **not yet run**,
-so the statuses above are the report *shape*, not pinned values — **Demo A (Alchemy)**
+so the statuses above are the report *shape*, not pinned values — **Demo A (Investigation)**
 below is a pinned, real validated run of this exact pipeline.
 
 ---
@@ -457,7 +457,7 @@ against a `capsule_id` they trust — offline, no key — and confirms **authors
 
 ---
 
-## Demo A — Alchemy (production CLL)  *(concept; internal, not copy-paste)*
+## Demo A — Investigation (production CLL)  *(concept; internal, not copy-paste)*
 
 Same workflow, source is an **existing production CLL** of real investigations.
 - Value proposition: *"Under limited evidence, reduce ticket uncertainty and
