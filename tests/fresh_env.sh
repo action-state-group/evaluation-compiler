@@ -48,8 +48,11 @@ step "build capsulectl and the test fixture from source"
 ctl=$work/bin/capsulectl
 "$ctl" --version
 
-step "a tau2 book: profile, keys, store"
+step "unit tests of the scripts' pure logic"
 cd "$work/skills"
+python3 -m unittest discover -s tests -p 'test_*.py'
+
+step "a tau2 book: profile, keys, store"
 "$ctl" key generate --output "$work/producer.seed" >"$work/producer.json"
 "$ctl" key generate --output "$work/checkpoint.seed" >"$work/checkpoint.json"
 "$ctl" profile create --name tau2 --type jsonl --jsonl-path "$work/store" \
@@ -101,7 +104,22 @@ set -e
 [[ "$paused" -eq 3 ]] || fail "the weekly skill did not pause for ratings (exit $paused)"
 packets=$(jq -r '.status' "$work/weekly-paused.json" | sed 's/.* in //')
 if grep -l '"verdict"\|"rationale"\|"stratum"' "$packets"/*.json >/dev/null; then fail "a blind packet shows the judge's verdict"; fi
-printf 'blind packets: %s (no verdict, rationale or stratum in any)\n' "$(ls "$packets" | wc -l | tr -d ' ')"
+run_dir="$(cd "$work/runs" && pwd)/$(jq -r .week "$work/weekly-paused.json" | tr ':' '-')/"
+case "$(cd "$packets" && pwd)/" in "$run_dir"*) fail "the blind packets sit inside the run directory, beside the verdicts" ;; esac
+printf 'blind packets: %s in %s, outside the run directory (no verdict, rationale or stratum in any)\n' "$(ls "$packets" | wc -l | tr -d ' ')" "$packets"
+
+step "duplicate ratings for one case are refused before any rating is sealed"
+before=$("$ctl" cll list --profile tau2 --all --limit 1000 | jq '.entries | length')
+python3 tests/stub_rater.py "$packets" | jq '. + [.[0]]' >"$work/ratings-duplicated.json"
+set +e
+python3 scripts/run_weekly.py --profile tau2 --spec demo/tau2/compiled.json --capsulectl "$ctl" \
+  --date "$day" --out "$work/runs" --ratings "$work/ratings-duplicated.json" >"$work/weekly-duplicated.json"
+refused=$?
+set -e
+[[ "$refused" -eq 2 ]] && jq -e '.evidence_unavailable | contains("more than one rating")' "$work/weekly-duplicated.json" >/dev/null || fail "a duplicated rating was not refused (exit $refused)"
+after=$("$ctl" cll list --profile tau2 --all --limit 1000 | jq '.entries | length')
+[[ "$before" -eq "$after" ]] || fail "a refused rating set still sealed records ($before -> $after)"
+printf 'refused: %s\n' "$(jq -r .evidence_unavailable "$work/weekly-duplicated.json")"
 
 step "the human's ratings (stand-in), then resume"
 python3 tests/stub_rater.py "$packets" >"$work/ratings.json"

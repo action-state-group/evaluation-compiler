@@ -27,6 +27,39 @@ SAMPLING_RULE = ("per stratum, order by hex(SHA-256(u32be(len(seed)) || seed || 
                  "ties by capsule id, take the first n (docs/calibration-sampling-spec.md)")
 
 
+# The only fields a blind packet may carry. Anything not listed here -- the
+# verdict, rationale, axis judgments, stratum, report id -- never reaches the
+# reviewer.
+PACKET_FIELDS = ("case_id", "clause", "agent_interaction", "policy", "booking_db")
+
+
+def blind_packet(report, case):
+    """The packet a reviewer sees for one sampled report: the case and the
+    evidence the judge had, built field by field from PACKET_FIELDS."""
+    packet = {"case_id": report["case_id"], "clause": report["clause_id"],
+              "agent_interaction": case["agent_interaction"],
+              "policy": "airline-data/policy.md", "booking_db": "airline-data/db.json"}
+    assert tuple(packet) == PACKET_FIELDS
+    return packet
+
+
+def checked_ratings(ratings, sampled_case_ids):
+    """The human's ratings, refused unless each names a sampled case exactly
+    once: a rating outside the sample, or a second rating for one case, would
+    make rated exceed drawn and the shortfall go negative."""
+    seen = set()
+    for r in ratings:
+        case_id = r.get("case_id")
+        if case_id not in sampled_case_ids:
+            raise ValueError(f"rating for a case outside the sample: {case_id!r}")
+        if case_id in seen:
+            raise ValueError(f"more than one rating for case {case_id!r}")
+        if r.get("rating") not in {"met", "not_met", "not_evaluable"}:
+            raise ValueError(f"rating for {case_id!r} is not met, not_met or not_evaluable")
+        seen.add(case_id)
+    return ratings
+
+
 def sample_key(seed, capsule_id):
     s = seed.encode()
     return hashlib.sha256(len(s).to_bytes(4, "big") + s + capsule_id.encode()).hexdigest(), capsule_id
@@ -49,7 +82,10 @@ def main(argv):
     year, week, _ = monday.isocalendar()
     week_key = f"week:{year:04d}-W{week:02d}"
     out = args.out / week_key.replace(":", "-")
-    work, packets = out / "work", out / "packets"
+    # The packets directory is a sibling of the run directory, never inside it:
+    # the run directory holds the raw report capsules, verdicts included. A
+    # reviewer is given the packets directory and nothing else.
+    work, packets = out / "work", args.out / (week_key.replace(":", "-") + "-blind-packets")
     work.mkdir(parents=True, exist_ok=True)
     packets.mkdir(exist_ok=True)
     ctl, profile = args.capsulectl, args.profile
@@ -94,9 +130,7 @@ def main(argv):
         by_case = {}
         for rid, body in selected:
             case = payload(ctl, profile, body["source_capsule_id"])
-            packet = {"case_id": body["case_id"], "clause": body["clause_id"],
-                      "agent_interaction": case["agent_interaction"],
-                      "policy": "airline-data/policy.md", "booking_db": "airline-data/db.json"}
+            packet = blind_packet(body, case)
             name = body["case_id"].replace(":", "_")
             (packets / f"{name}.json").write_text(json.dumps(packet, indent=2))
             by_case[body["case_id"]] = (rid, body)
@@ -107,11 +141,12 @@ def main(argv):
             return 3
 
         # 4. The human's ratings, one record each, chained to the report audited.
-        ratings = json.loads(args.ratings.read_text())
+        try:
+            ratings = checked_ratings(json.loads(args.ratings.read_text()), set(by_case))
+        except ValueError as e:
+            raise EvidenceUnavailable(f"ratings refused: {e}") from e
         rated = []
         for r in ratings:
-            if r.get("case_id") not in by_case:
-                raise EvidenceUnavailable(f"rating for a case outside the sample: {r.get('case_id')!r}")
             rid, body = by_case[r["case_id"]]
             record = {"record_type": "human-rating/v1", "epistemic_type": "human_report", "blind": True,
                       "case_id": r["case_id"], "rating": r["rating"], "audits": rid,

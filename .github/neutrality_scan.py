@@ -138,7 +138,7 @@ def scan(root: Path, pattern: re.Pattern[str], allow: tuple[str, ...]) -> list[s
 
 
 def _run_self_tests() -> None:
-    """Anton two-occurrence test: span-based allow-phrase exemption.
+    """Two-occurrence test: span-based allow-phrase exemption.
 
     One occurrence of the term inside the allow-phrase span → exempt.
     One occurrence outside → flagged.  Both on the same line.

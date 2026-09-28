@@ -59,7 +59,14 @@ python3 scripts/run_weekly.py --profile NAME --spec COMPILED.json --date YYYY-MM
 python3 scripts/run_weekly.py --profile NAME --spec COMPILED.json --date YYYY-MM-DD --out RUN_DIR --ratings RATINGS.json
 ```
 
-`demo/tau2/compiled.json` is the compiled spec for the tau2 airline demo. The judge is any
+A run closes the previous day, since `close` refuses a day that has not ended. The reports
+a run seals are committed on the day it runs, so the judgments of day D's cases, made on
+D+1, are covered by the Close for D+1. The weekly run writes the blind packets to a
+directory beside its run directory; give the reviewer that directory and nothing else.
+
+`demo/tau2/compiled.json` is the compiled spec for the tau2 airline demo. Its counterparty
+is a marked sample placeholder: the demo contract has none, and `capsulectl close` requires
+the flag today. The judge is any
 command that reads one case on stdin and prints `{"verdict", "rationale"}`; no model runs in
 this repository. `tests/fresh_env.sh` runs both skills end to end on the tau2 airline book
 from a clean machine state (a new HOME, fresh clones, `capsulectl` built from source), with

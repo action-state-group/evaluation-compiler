@@ -364,7 +364,7 @@ capsulectl cll checkpoint create --profile airlinedemo
 
 ---
 
-## Anchor to Steven's public witness  *(live — real append)*
+## Anchor to the operator's public witness  *(live — real append)*
 
 ```sh
 # resolve the witness authority public key (verify receipts against this)

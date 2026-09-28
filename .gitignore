@@ -5,3 +5,4 @@
 # (e.g. ~/.local/share/evaluation-runs, ~/.local/share/evaluation-bundles)
 
 .DS_Store
+__pycache__/

@@ -1,6 +1,7 @@
 {
   "contract": "tau2-airline-policy/v1",
-  "counterparty": "tau2-user-simulator",
+  "counterparty": "SAMPLE-PLACEHOLDER-no-counterparty",
+  "counterparty_note": "SAMPLE PLACEHOLDER, not a party: this contract has no counterparty, so every Close is unilateral. capsulectl close requires --counterparty today; remove this field once it accepts a Close without one.",
   "clauses": [
     {
       "id": "policy-followed",

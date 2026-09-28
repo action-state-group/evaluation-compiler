@@ -35,7 +35,10 @@ with a deterministic stand-in rating the packets in place of the person.
 - For each sampled report, resolve the source interaction and the same
   independently-sourced desired-outcome materials the judge used (the audited axis
   rubric, the declared criteria or evidence procedure) — transcript-blind, as the
-  judge itself required. Assemble a packet that **excludes** the report's verdict,
+  judge itself required. Blindness depends on the reviewer receiving the packets
+  directory and nothing else: the run writes it beside, never inside, its working
+  directory, which holds the report capsules with their verdicts. Assemble a packet that
+  **excludes** the report's verdict,
   rationale, axis judgments and stratum label, and withholds any field the contract's
   `disclosure.suppress` list names (with digest, never silently dropped).
 - Present the packet to a human expert; record their pass/fail as `human-rating/v1`

@@ -31,6 +31,13 @@ from capsulectl_calls import (EvidenceUnavailable, committed_on, list_capsules, 
 VERDICTS = {"met", "not_met", "not_evaluable"}
 
 
+def checked_answer(answer):
+    """The judge's answer, refused unless it carries one of the three verdicts."""
+    if not isinstance(answer, dict) or answer.get("verdict") not in VERDICTS:
+        raise EvidenceUnavailable(f"judge returned no valid verdict: {answer!r}")
+    return answer
+
+
 def judge(cmd, case_payload, clause, spec_root):
     request = {"clause": clause, "case": case_payload["case"],
                "agent_interaction": case_payload["agent_interaction"],
@@ -39,10 +46,7 @@ def judge(cmd, case_payload, clause, spec_root):
     proc = subprocess.run(shlex.split(cmd), input=json.dumps(request), capture_output=True, text=True)
     if proc.returncode != 0:
         raise EvidenceUnavailable(f"judge exited {proc.returncode}: {proc.stderr.strip()}")
-    answer = json.loads(proc.stdout)
-    if answer.get("verdict") not in VERDICTS:
-        raise EvidenceUnavailable(f"judge returned no valid verdict: {answer!r}")
-    return answer
+    return checked_answer(json.loads(proc.stdout))
 
 
 def main(argv):
