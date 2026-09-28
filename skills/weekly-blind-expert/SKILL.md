@@ -11,51 +11,54 @@ the loop, and the human's ratings are the approval; this skill never fills one i
 their behalf, never infers a rating from a timeout, and never proceeds past the sample
 with fewer ratings than were drawn without reporting the shortfall.
 
-**Not runnable today.** Sealing `calibration-summary/v1` needs `calibration summarize`
-and reading the week's Closes needs `close`/`reconcile`, neither shipped yet. See
-[`../README.md`](../README.md)'s verb table and its flagged tension with this repo's
-own `docs/calibration-sampling-spec.md`.
+Runnable with `capsulectl` built from `capsule-cli` main.
+[`../../scripts/run_weekly.py`](../../scripts/run_weekly.py) performs exactly the steps
+below for one week: without the human's ratings it seals the sample manifest, writes the
+blind packets and stops (exit 3); given them, it seals the ratings, the calibration summary
+and the week's Close. `tests/fresh_env.sh` runs it end to end on the tau2 airline book,
+with a deterministic stand-in rating the packets in place of the person.
 
 ## Verbs this skill may call, and nothing else
 
-- `cll list` / `get` / `verify` (today) — resolve and authenticate the week's
-  `evaluation-report/v1` and `close/v1` records before sampling from them.
+- `cll list` / `get` / `verify --capsule FILE` — resolve and authenticate the week's
+  `evaluation-report/v1` records (those whose `period` is a day of the week) before
+  sampling from them.
 - Draw the sample per the contract's `sample_policy` (`weekly: N`, `stratify_by`),
   reusing the deterministic rule this repo already specifies in
   `docs/calibration-sampling-spec.md` (order each stratum by the hex of
   `SHA-256(u32be(len(seed)) || seed || report_capsule_id)`, break ties by capsule id,
   take the first `n` per stratum) — do not invent a second sampling rule for this
   skill. Seal the draw as `sample-manifest/v1` (frame, strata sizes, seed, exact rule,
-  selected report ids) via `publish` (today) **before** any human sees a case — the
+  selected report ids) via `publish` **before** any human sees a case — the
   manifest is what makes the sample unable to be cherry-picked or redrawn after the
   fact.
 - For each sampled report, resolve the source interaction and the same
   independently-sourced desired-outcome materials the judge used (the audited axis
   rubric, the declared criteria or evidence procedure) — transcript-blind, as the
-  judge itself required. Assemble a packet that **excludes** the report's verdict,
+  judge itself required. Blindness depends on the reviewer receiving the packets
+  directory and nothing else: the run writes it beside, never inside, its working
+  directory, which holds the report capsules with their verdicts. Assemble a packet that
+  **excludes** the report's verdict,
   rationale, axis judgments and stratum label, and withholds any field the contract's
   `disclosure.suppress` list names (with digest, never silently dropped).
 - Present the packet to a human expert; record their pass/fail as `human-rating/v1`
   (epistemic type `human_report`, `blind: true`), chained to the `evaluation-report/v1`
-  Capsule it audits, via `publish` (today).
-- `calibration summarize` (pending) — reduce the week's
-  ratings against the reports they audit into one `calibration-summary/v1`: **agreement
-  as k of n, and nothing else.** See the flag below — this is a deliberate, narrower
+  Capsule it audits, via `publish`.
+- `calibration summarize REPORTS_FILE RATINGS_FILE` — reduce the week's ratings against
+  the sampled reports they audit into one `calibration-summary/v1`: **agreement as k of
+  n, and nothing else**, with the drawn sample size and any shortfall beside it. See the flag below — this is a deliberate, narrower
   output than this repo's own pre-existing calibration estimators.
-- `close --period week [--peer NAME]` (pending) — seal the week's Close, same
-  UNILATERAL-by-construction rule as the daily skill when no counterparty is
-  configured.
+- `close --period week --date DAY --counterparty BOOK_ID [--peer FILE --peer-checkpoint-key HEX]`
+  — seal the week's Close, with the same counterparty and refusal rules as the daily
+  skill: unilateral when no peer bundle is held.
 
-## Flag: `calibration-summary/v1` is k-of-n only, and that is narrower than this repo already ships
+## `calibration-summary/v1` is k-of-n only
 
-`docs/calibration-sampling-spec.md` (pre-existing in this repo) computes two error
-rates, a population-weighted judge accuracy `Â`, and a bias-corrected pass rate `p̂` —
-i.e. it scores the judge. The design for this skill is explicit that
-`calibration-summary/v1` is a `derived_metric` reporting agreement as k of n, and that
-nobody computes an accuracy score. This skill follows that rule. The estimator math in
-`docs/calibration-sampling-spec.md` is not wrong, and is not touched here — it is an
-open tension between this repo's existing design and the new record family, to be
-reconciled in the judge record family spec rather than decided by this skill.
+`calibration-summary/v1` is a `derived_metric` reporting agreement as k of n per judge
+pin, beside the drawn sample size and any shortfall, and nobody computes an accuracy
+score from it. The estimators in `docs/calibration-sampling-spec.md` (`Â`, `p̂`, the
+error rates) are marked superseded there; that document's sampling rule and blinding
+rules still apply.
 
 ## Evidence policy
 

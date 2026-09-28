@@ -322,7 +322,7 @@ capsulectl cll verify --profile airlinedemo --proof "$DEMO/run/proof.json"
 
 ### C2. Configure the Action State Group witness endpoint
 
-The ASG (Steven's) witness is `capsule-anchor` at
+The operator's witness is `capsule-anchor` at
 `https://witness.agentactioncapsule.org`; its `/checkpoints` route is public and
 unauthenticated for a non-enrolled `log_id` (no token). Resolve its authority key
 and add the endpoint + key to the profile:

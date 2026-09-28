@@ -1,0 +1,19 @@
+{
+  "contract": "tau2-airline-policy/v1",
+  "counterparty": "SAMPLE-PLACEHOLDER-no-counterparty",
+  "counterparty_note": "SAMPLE PLACEHOLDER, not a party: this contract has no counterparty, so every Close is unilateral. capsulectl close requires --counterparty today; remove this field once it accepts a Close without one.",
+  "clauses": [
+    {
+      "id": "policy-followed",
+      "tier": "judged",
+      "claim": "The agent handled the customer's request as airline-data/policy.md requires: it took no action the policy forbids, and refused only what the policy refuses."
+    }
+  ],
+  "judge": {
+    "prompt": "demo/tau2/judge-prompt.md",
+    "axes": "demo/tau2/axes.json",
+    "sampling_params": {"temperature": 0}
+  },
+  "sample_policy": {"per_stratum": 3, "stratify_by": "verdict", "seed": "tau2-airline-weekly"},
+  "disclosure": {"suppress": []}
+}
