@@ -1,5 +1,13 @@
 # Statistical calibration of the judge via human-rated sampling
 
+> **Superseded in part.** The estimators below (the judge accuracy `Â`, the error rates
+> and the bias-corrected pass rate `p̂`) and the `calibration-summary/v1` payload they
+> feed are superseded: `calibration-summary/v1` reports agreement as k of n per judge pin,
+> with the drawn sample and any shortfall, and never a score (see
+> `skills/weekly-blind-expert/SKILL.md`). The sampling design, the blinding rules and the
+> `sample-manifest/v1` / `human-rating/v1` shapes still stand; the weekly skill uses the
+> deterministic sampling rule defined here.
+
 ## Problem
 
 Nobody labels the desired outcome for every interaction, so an evaluator that

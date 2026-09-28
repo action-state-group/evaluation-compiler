@@ -1,19 +1,19 @@
-# The four skills — draft text
+# The four skills
 
-This directory holds draft `SKILL.md`/`AGENTS.md` text for the skills this repo is growing
-into: the evolution of the existing compiler, and the two cron-run skills it compiles. It is
-additive — the repo's root `SKILL.md` (the `evaluation-compiler` skill, still live and still
-the thing generated bundles are exercised against) is untouched. These drafts are for review as
-text; the cutover (retiring the root file, moving assets, renaming the repo to
-`evidencebook-skills`) is a separate, later step.
+This directory holds the `SKILL.md`/`AGENTS.md` text for the skills this repository is
+growing into: the evolution of the existing compiler, and the two cron-run skills it
+compiles. The two cron skills run (see "Running the two cron skills"). It is additive — the
+repository's root `SKILL.md` (the `evaluation-compiler` skill, still live and still the thing
+generated bundles are exercised against) is untouched; retiring it and moving its assets is a
+separate, later step.
 
 ## The four skills, and where each one lives
 
 | # | Skill | Here | Status |
 |---|---|---|---|
 | 1 | `evidence-contract-compile` | [`evidence-contract-compile/SKILL.md`](evidence-contract-compile/SKILL.md) | drafted, unwired |
-| 2 | `daily-judge-and-close` | [`daily-judge-and-close/SKILL.md`](daily-judge-and-close/SKILL.md) | drafted, not runnable yet (see verb table) |
-| 3 | `weekly-blind-expert` | [`weekly-blind-expert/SKILL.md`](weekly-blind-expert/SKILL.md) | drafted, not runnable yet (see verb table) |
+| 2 | `daily-judge-and-close` | [`daily-judge-and-close/SKILL.md`](daily-judge-and-close/SKILL.md) | runnable: `scripts/run_daily.py` |
+| 3 | `weekly-blind-expert` | [`weekly-blind-expert/SKILL.md`](weekly-blind-expert/SKILL.md) | runnable: `scripts/run_weekly.py` |
 | 4 | `capsulectl` (thin verb skill) | **not here** | ships with `capsule-cli` at `skills/capsulectl/`, generated from `spec.yaml` |
 
 Skill 4 is consumed, not vendored. Nothing in this repo copies its `SKILL.md`/`AGENTS.md` or
@@ -40,25 +40,34 @@ either misstating their verb surface or stripping the reasoning out.
 So all three are hand-authored `SKILL.md` prose, in the same voice and rigor as the existing
 `evaluation-compiler` skill, with `AGENTS.md` a literal byte-identical copy — Claude Code and
 Codex read the same text. Only skill 4 goes through `skillgen`, because only skill 4 is thin.
-**Open question for review:** whether the spec format should grow a shape for reasoning-heavy
-skills, or whether hand-authored-plus-copy is the intended pattern for them.
+This is the intended pattern for reasoning-heavy skills: hand-authored `SKILL.md`, with
+`AGENTS.md` a byte-identical copy.
 
-## Verb dependency status (checked against `capsule-cli` `skills/capsulectl/spec.yaml`)
+## Running the two cron skills
 
-Ships today: `verify`, `contract validate`, `discover`, `plugin ls`, `cll list`, `cll append`,
-`get`, `publish`, `seal`. **Not yet shipped:** `close --period day|week [--peer] --since-last`,
-`reconcile --peer --period`, `judge pin`, `judge drift`, `calibration summarize`, `request`,
-`respond` — these come with the book-verbs work in `capsule-cli` and the Go EvidenceBook
-reference module. `evidence-contract-compile` is runnable today (it only needs `contract
-validate` + `publish`). `daily-judge-and-close` and `weekly-blind-expert` are **not** runnable
-today — every consequential step they take (`close`, `judge pin`, `calibration summarize`) calls
-a verb that does not exist yet. The drafts are written against the verb names that work has
-already committed to, so no rewrite is expected when the verbs land — only the "not yet
-available" caveats come out.
+Both run with `capsulectl` built from `capsule-cli` main, over a jsonl profile whose one log
+is its evidence book. Each has an exercise script that performs exactly the skill's steps,
+calling only the verbs the skill lists:
 
-The `capsulectl-engine` plugin (`fold run --clause ID --profile X`, wrapping `capsule-engine`
-folds for the `recomputed` tier) is also not built yet. `daily-judge-and-close` documents calling
-it through `plugin ls` discovery once it exists.
+```sh
+# nightly: judge yesterday's cases, seal one report per case, seal the day's Close
+python3 scripts/run_daily.py --profile NAME --spec COMPILED.json \
+    --judge-cmd "PINNED_JUDGE_COMMAND" --judge-model-id MODEL_ID --date YYYY-MM-DD --out RUN_DIR
+# weekly: seal the sample, then pause (exit 3) for the human's blind ratings ...
+python3 scripts/run_weekly.py --profile NAME --spec COMPILED.json --date YYYY-MM-DD --out RUN_DIR
+# ... and resume with them: ratings, calibration summary (k of n), the week's Close
+python3 scripts/run_weekly.py --profile NAME --spec COMPILED.json --date YYYY-MM-DD --out RUN_DIR --ratings RATINGS.json
+```
+
+`demo/tau2/compiled.json` is the compiled spec for the tau2 airline demo. The judge is any
+command that reads one case on stdin and prints `{"verdict", "rationale"}`; no model runs in
+this repository. `tests/fresh_env.sh` runs both skills end to end on the tau2 airline book
+from a clean machine state (a new HOME, fresh clones, `capsulectl` built from source), with
+`tests/stub_judge.py` and `tests/stub_rater.py` as deterministic stand-ins for the judge and
+the human, and verifies every record and bundle it produced.
+
+Still pending: the `capsulectl-engine` plugin (`fold run --clause ID --profile NAME`) for
+`tier: recomputed` clauses, so a contract with such a clause cannot run the daily skill yet.
 
 ## Record family — named here, not defined here
 
@@ -67,18 +76,12 @@ it through `plugin ls` discovery once it exists.
 JSON schemas belong to the judge record family spec; this repo does not define or fork a second
 copy, and record names are kept in step with the monthly aggregation stage that consumes them.
 
-## Open tension with `docs/calibration-sampling-spec.md`
+## Calibration is k of n
 
-This repo's own `docs/calibration-sampling-spec.md` computes a population-weighted judge
-accuracy `Â` and a bias-corrected pass rate `p̂` — i.e. it scores the judge. The design for
-`weekly-blind-expert` is explicit that `calibration-summary/v1` is a `derived_metric`:
-"agreement as k of n, never a score." The two documents disagree about what calibration is
-allowed to output. `weekly-blind-expert/SKILL.md` follows the k-of-n rule; the estimator math in
-`docs/calibration-sampling-spec.md` is left in place, unedited. Reconciling the two belongs with
-the judge record family spec, not with either skill.
+`calibration-summary/v1` reports agreement as k of n, never a score. The estimators in
+`docs/calibration-sampling-spec.md` are marked superseded there; its sampling rule stays.
 
-## Not in these drafts
+## Not yet done
 
-An end-to-end fresh-environment run, retiring the older compiler and judge programs, the repo
-rename, and turning `demo/week-eval` (and a blind-expert demo) into exercise scripts for the two
-cron skills all depend on the verbs above landing. None of that is attempted here.
+Retiring the older compiler and judge programs, the root `SKILL.md` cutover, and the
+`capsulectl-engine` plugin for recomputed clauses.

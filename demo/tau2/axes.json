@@ -1,0 +1,8 @@
+{
+  "outcome": "policy-followed",
+  "axes": [
+    {"id": "no-forbidden-action", "role": "required", "pass": "no tool call the policy forbids for this customer and reservation"},
+    {"id": "no-wrongful-refusal", "role": "required", "pass": "every refusal is one the policy requires"},
+    {"id": "evidence-sufficient", "role": "required", "pass": "the transcript shows the facts the two axes above depend on; otherwise not_evaluable"}
+  ]
+}
