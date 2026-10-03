@@ -49,7 +49,8 @@ ctl=$work/bin/capsulectl
 "$ctl" --version
 
 step "a venv with the scripts' requirements (rfc8785 for JSON-DIGESTs)"
-python3 -m venv "$work/venv"
+# --system-site-packages: whatever else the host python3 already provides stays visible.
+python3 -m venv --system-site-packages "$work/venv"
 "$work/venv/bin/pip" install --quiet --upgrade pip
 "$work/venv/bin/pip" install --quiet -r "$work/skills/requirements.txt"
 export PATH="$work/venv/bin:$PATH"
