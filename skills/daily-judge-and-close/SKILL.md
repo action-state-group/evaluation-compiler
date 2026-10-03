@@ -59,24 +59,20 @@ on the tau2 airline book. Still pending: the `capsulectl-engine` plugin, so a co
 
 ## Every action seals a record
 
-`scripts/run_daily.py` seals one `skill-action/v1` capsule each for the judge pin, the
-day's range read and the verification of its cases. Each judged report is itself the
-judgment's capsule. It carries `rubric_digest` (the pinned axes) and
-`judge_parameters_digest` (the judge pin), and cites the case capsule it judged as
-`judged_from` in its references. A recomputed report is not a judgment and carries
-neither. The Close is its own capsule. An action run by hand (`result build` on the
-roll-up, or the roll-up itself) is sealed the same way.
-Seal it with `scripts/skill_action.py` (one `skill-action/v1` capsule, digests only:
-inputs, stdout, argv; never contents, paths, profile or environment), for example:
+Each report and the Close are the records of the judging and closing they did. Any
+other action, such as `judge pin` run on its own or a roll-up, seals one capsule.
+Seal it with `scripts/skill_action.py`. That is one `skill-action/v1` capsule with
+digests only (inputs, stdout, argv), never contents, paths, profile or environment.
+For example:
 
 ```sh
-python3 scripts/skill_action.py --profile NAME --skill daily-judge-and-close --action rollup \
-    --input spec=SPEC.json -- python3 scripts/rollup_day.py --profile NAME --spec SPEC.json \
-    --generated-at 2026-09-23T23:59:59Z --out RUN_DIR/rollup
+python3 scripts/skill_action.py --profile NAME --skill daily-judge-and-close --action judge-pin \
+    --at 2026-09-23T23:59:59Z --input pin_input=PIN.json -- capsulectl judge pin PIN.json
 ```
 
-A failed action is sealed too (`outcome: failed`). If its record cannot be sealed, the
-action reports `evidence unavailable` and the skill stops there. See
+`--at` fixes the capsule's timestamp, so a re-run with the same `--at` seals nothing
+new. A failed action is sealed too (`outcome: failed`). If its record cannot be sealed,
+the action reports `evidence unavailable` and the skill stops there. See
 `docs/skill-action-capsules.md`.
 
 ## Evidence policy

@@ -16,10 +16,9 @@ and of its argv. It never carries file contents, paths, the profile or the
 environment. Role names that name secret material (key, seed, token, ...) are
 refused, and so are input files that look like key material.
 
-A judgment action adds --judged-from CAPSULE_ID and --rubric FILE (and
---judge-parameters FILE when a judge ran under parameters): the record then
-carries rubric_digest and judge_parameters_digest, and the capsule cites the
-judged record as judged_from.
+--at is required: the capsule's timestamp is part of what it commits, so a
+wall-clock default would mint a new capsule on every re-run. Pass the same --at
+to re-run an action and the same capsule comes back (nothing new is sealed).
 
 A failed command is sealed too (`outcome: failed`), and this script exits with
 the command's own exit status. If the record cannot be sealed, it prints
@@ -28,15 +27,14 @@ record stops the run.
 """
 
 import argparse
-import datetime
 import hashlib
 import pathlib
 import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from capsulectl_calls import (EvidenceUnavailable, emit_skill_action, json_digest, run,  # noqa: E402
-                              sha256_file, skill_action_record)
+from capsulectl_calls import EvidenceUnavailable, run, sha256_file  # noqa: E402
+from skill_record import emit_skill_action, json_digest, skill_action_record  # noqa: E402
 
 KEY_MATERIAL_SUFFIXES = (".seed", ".key", ".pem", ".p12", ".pfx", ".env")
 
@@ -53,10 +51,6 @@ def parse_input(spec):
     return role, sha256_file(p)
 
 
-def utc_now():
-    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def main(argv):
     if "--" not in argv:
         print("usage: skill_action.py [options] -- COMMAND [ARGS...]", file=sys.stderr)
@@ -68,20 +62,14 @@ def main(argv):
     ap.add_argument("--skill", required=True)
     ap.add_argument("--action", required=True)
     ap.add_argument("--input", action="append", default=[], metavar="ROLE=PATH")
-    ap.add_argument("--at", help="RFC3339 UTC timestamp for the capsule (default: now). "
-                                 "Fix it to make a re-run seal the same capsule.")
-    ap.add_argument("--judged-from", help="capsule_id of the record this action judges")
-    ap.add_argument("--rubric", type=pathlib.Path, help="the rubric the judgment is made against")
-    ap.add_argument("--judge-parameters", type=pathlib.Path, help="the parameters the judge ran under")
+    ap.add_argument("--at", required=True,
+                    help="RFC3339 UTC timestamp for the capsule; the same --at on a re-run seals the same capsule")
     ap.add_argument("--work", type=pathlib.Path, default=pathlib.Path(".skill-actions"),
                     help="where the exact seal request is kept before publishing")
     ap.add_argument("--capsulectl", default="capsulectl")
     args = ap.parse_args(own)
     if not command:
         ap.error("no command after --")
-    judgment = (args.judged_from, args.rubric, args.judge_parameters)
-    if any(x is not None for x in judgment) and (args.judged_from is None or args.rubric is None):
-        ap.error("a judgment action needs both --judged-from and --rubric")
 
     try:
         inputs = [parse_input(spec) for spec in args.input]
@@ -105,12 +93,10 @@ def main(argv):
             args.skill, args.action, inputs=inputs,
             output_digest=hashlib.sha256(stdout).hexdigest(),
             outcome="ok" if code == 0 else "failed", exit_code=code,
-            argv_digest=json_digest(command),
-            rubric_digest=sha256_file(args.rubric) if args.rubric else None,
-            judge_parameters_digest=sha256_file(args.judge_parameters) if args.judge_parameters else None)
+            argv_digest=json_digest(command))
         args.work.mkdir(parents=True, exist_ok=True)
         capsule_id = emit_skill_action(args.capsulectl, args.profile, args.work, operator,
-                                       args.at or utc_now(), record, judged_from=args.judged_from)
+                                       args.at, record)
     except (EvidenceUnavailable, OSError) as e:
         print(f"evidence unavailable: {args.skill} {args.action}: {e}", file=sys.stderr)
         return 2

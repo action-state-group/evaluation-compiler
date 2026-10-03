@@ -65,20 +65,19 @@ rules still apply.
 `scripts/run_weekly.py` seals one `skill-action/v1` capsule each for the week's frame
 read and the blind packets handed to the reviewer (their digest, never their content).
 The manifest, each rating, the calibration summary and the Close are their own
-capsules. A rating is a judgment: it carries `rubric_digest` (the contract's pinned
-axes) and cites the case it rated as `judged_from`. A human runs under no judge
-parameters, so a rating has no `judge_parameters_digest`. An action run by hand is
-sealed the same way.
-Seal it with `scripts/skill_action.py` (one `skill-action/v1` capsule, digests only:
-inputs, stdout, argv; never contents, paths, profile or environment), for example:
+capsules. Any action run by hand seals one capsule too.
+Seal it with `scripts/skill_action.py`. That is one `skill-action/v1` capsule with
+digests only (inputs, stdout, argv), never contents, paths, profile or environment.
+For example:
 
 ```sh
 python3 scripts/skill_action.py --profile NAME --skill weekly-blind-expert --action calibration-summarize \
-    -- capsulectl calibration summarize SAMPLED.json RATINGS.json
+    --at 2026-09-27T23:59:59Z -- capsulectl calibration summarize SAMPLED.json RATINGS.json
 ```
 
-A failed action is sealed too (`outcome: failed`). If its record cannot be sealed, the
-action reports `evidence unavailable` and the skill stops there. See
+`--at` fixes the capsule's timestamp, so a re-run with the same `--at` seals nothing
+new. A failed action is sealed too (`outcome: failed`). If its record cannot be sealed,
+the action reports `evidence unavailable` and the skill stops there. See
 `docs/skill-action-capsules.md`.
 
 ## Evidence policy

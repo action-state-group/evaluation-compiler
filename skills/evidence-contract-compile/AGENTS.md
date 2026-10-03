@@ -142,16 +142,19 @@ manufacture an approval from silence or a timeout.
 
 Every action this skill takes (install, discover, map, `contract validate`, generating
 the pair, the approval) seals one capsule.
-Seal it with `scripts/skill_action.py` (one `skill-action/v1` capsule, digests only:
-inputs, stdout, argv; never contents, paths, profile or environment), for example:
+Seal it with `scripts/skill_action.py`. That is one `skill-action/v1` capsule with
+digests only (inputs, stdout, argv), never contents, paths, profile or environment.
+For example:
 
 ```sh
 python3 scripts/skill_action.py --profile NAME --skill evidence-contract-compile --action contract-validate \
-    --input contract=CONTRACT.yaml --input schema=SCHEMA.json -- capsulectl contract validate CONTRACT.yaml --schema SCHEMA.json --json
+    --at 2026-09-23T12:00:00Z --input contract=CONTRACT.yaml \
+    --input schema=SCHEMA.json -- capsulectl contract validate CONTRACT.yaml --schema SCHEMA.json --json
 ```
 
-A failed action is sealed too (`outcome: failed`). If its record cannot be sealed, the
-action reports `evidence unavailable` and the skill stops there. See
+`--at` fixes the capsule's timestamp, so a re-run with the same `--at` seals nothing
+new. A failed action is sealed too (`outcome: failed`). If its record cannot be sealed,
+the action reports `evidence unavailable` and the skill stops there. See
 `docs/skill-action-capsules.md`.
 
 ## What this skill never produces
