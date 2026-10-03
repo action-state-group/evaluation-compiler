@@ -48,6 +48,13 @@ step "build capsulectl and the test fixture from source"
 ctl=$work/bin/capsulectl
 "$ctl" --version
 
+step "a venv with the scripts' requirements (rfc8785 for JSON-DIGESTs)"
+# --system-site-packages: whatever else the host python3 already provides stays visible.
+python3 -m venv --system-site-packages "$work/venv"
+"$work/venv/bin/pip" install --quiet --upgrade pip
+"$work/venv/bin/pip" install --quiet -r "$work/skills/requirements.txt"
+export PATH="$work/venv/bin:$PATH"
+
 step "unit tests of the scripts' pure logic"
 cd "$work/skills"
 python3 -m unittest discover -s tests -p 'test_*.py'
@@ -138,7 +145,7 @@ for close in $(jq -r .close.capsule "$work/daily.json") $(jq -r .close.capsule "
   "$ctl" verify --profile tau2 --capsule "$close" >/dev/null || fail "Close $close does not verify"
   verified=$((verified + 1))
 done
-printf '%s records verified with capsulectl verify (cases, reports, manifest, ratings, summary, two Closes)\n' "$verified"
+printf '%s records verified with capsulectl verify (cases, reports, skill actions, manifest, ratings, summary, two Closes)\n' "$verified"
 
 step "bundles verify with the neutral AAC bundle verifier"
 "$ctl" bundle --profile tau2 --root "$(jq -r .calibration_summary "$work/weekly.json")" --out "$work/calibration-bundle.json"

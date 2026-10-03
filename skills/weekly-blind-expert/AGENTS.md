@@ -60,6 +60,27 @@ score from it. The estimators in `docs/calibration-sampling-spec.md` (`Â`, `p̂
 error rates) are marked superseded there; that document's sampling rule and blinding
 rules still apply.
 
+## Every action seals a record
+
+`scripts/run_weekly.py` seals one `skill-action/v1` capsule each for the week's frame
+read and the blind packets handed to the reviewer (their digest, never their content).
+The manifest, each rating, the calibration summary and the Close are their own
+capsules. A rating is a judgment: it cites the case it rated as `judged_from` and
+copies `rubric_digest` from the report it audits. Any action run by hand seals one capsule too.
+Seal it with `scripts/skill_action.py`. That is one `skill-action/v1` capsule with
+digests only (inputs, stdout, argv), never contents, paths, profile or environment.
+For example:
+
+```sh
+python3 scripts/skill_action.py --profile NAME --skill weekly-blind-expert --action calibration-summarize \
+    --at 2026-09-27T23:59:59Z -- capsulectl calibration summarize SAMPLED.json RATINGS.json
+```
+
+`--at` fixes the capsule's timestamp, so a re-run with the same `--at` seals nothing
+new. A failed action is sealed too (`outcome: failed`). If its record cannot be sealed,
+the action reports `evidence unavailable` and the skill stops there. See
+`docs/skill-action-capsules.md`.
+
 ## Evidence policy
 
 Every consequential action (the sample manifest, each human rating, the calibration
