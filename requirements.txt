@@ -1,0 +1,2 @@
+# The scripts are stdlib Python apart from these.
+rfc8785  # JCS (RFC 8785) for JSON-DIGESTs: scripts/skill_record.py
