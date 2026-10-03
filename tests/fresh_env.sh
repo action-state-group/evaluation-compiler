@@ -138,7 +138,7 @@ for close in $(jq -r .close.capsule "$work/daily.json") $(jq -r .close.capsule "
   "$ctl" verify --profile tau2 --capsule "$close" >/dev/null || fail "Close $close does not verify"
   verified=$((verified + 1))
 done
-printf '%s records verified with capsulectl verify (cases, reports, manifest, ratings, summary, two Closes)\n' "$verified"
+printf '%s records verified with capsulectl verify (cases, reports, skill actions, manifest, ratings, summary, two Closes)\n' "$verified"
 
 step "bundles verify with the neutral AAC bundle verifier"
 "$ctl" bundle --profile tau2 --root "$(jq -r .calibration_summary "$work/weekly.json")" --out "$work/calibration-bundle.json"

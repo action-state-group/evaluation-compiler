@@ -56,8 +56,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from capsulectl_calls import (EvidenceUnavailable, committed_on, list_capsules, payload,  # noqa: E402
-                              publish, run, seal_request, verify)
+from capsulectl_calls import (EvidenceUnavailable, committed_on, emit_skill_action, json_digest,  # noqa: E402
+                              list_capsules, payload, publish, run, seal_request, skill_action_record, verify)
 from judge_pin import DEFAULT_JUDGE_TIMEOUT, describe_judge, pin_input as build_pin_input  # noqa: E402
 from recompute import RECOMPUTE_CHECKS  # noqa: E402
 
@@ -191,7 +191,13 @@ def build_report(clause, switches, answer, contract, case_id, capsule_id, pin, d
     disclosed report can see WHICH model, prompt and axes the pin names and recompute
     the digest from them, instead of being handed an opaque hash. `period` is the
     judged window, `day:<YYYY-MM-DD>`. `judge_pin` follows the same rule as the
-    digest: never on a recomputed clause."""
+    digest: never on a recomputed clause.
+
+    A judged report is a judgment, so it also carries the judgment names:
+    `judge_parameters_digest` (the judge pin's digest: the parameters the judge ran
+    under) and, when `judge_pin` is given, `rubric_digest` (the pinned axes' digest:
+    what the case was judged against). The case it judged is cited as `judged_from`
+    in the Capsule's references when the report is sealed (main())."""
     tier = effective_tier(clause, switches)
     report = {"record_type": "evaluation-report/v1",
               "contract": contract, "clause_id": clause["id"], "case_id": case_id,
@@ -206,8 +212,10 @@ def build_report(clause, switches, answer, contract, case_id, capsule_id, pin, d
     if tier == "judged":
         report["epistemic_type"] = "semantic_judgment"
         report["judge_pin_digest"] = pin
+        report["judge_parameters_digest"] = pin
         if judge_pin is not None:
             report["judge_pin"] = dict(judge_pin)
+            report["rubric_digest"] = judge_pin["axes_digest"]
     else:
         report["epistemic_type"] = "recomputed_determination"
         checker = RECOMPUTE_CHECKS[clause["id"]]
@@ -241,6 +249,13 @@ def main(argv):
     ctl, profile = args.capsulectl, args.profile
     operator = run(ctl, "profile", "show", profile)["Operator"]
     log = {"skill": "daily-judge-and-close", "day": str(day), "profile": profile}
+    stamp = f"{day}T23:59:59Z"
+    actions = log["actions"] = []
+
+    def action(name, **fields):
+        """Seal one skill action of this run (scripts/capsulectl_calls.py, skill-action/v1)."""
+        actions.append(emit_skill_action(ctl, profile, work, operator, stamp,
+                                         skill_action_record("daily-judge-and-close", name, **fields)))
 
     try:
         # 1. Resolve the pinned judge before judging anything.
@@ -249,6 +264,7 @@ def main(argv):
         (work / "judge-pin.json").write_text(json.dumps(pin_input))
         pin = run(ctl, "judge", "pin", str(work / "judge-pin.json"))["judge_pin_digest"]
         log["judge_pin_digest"] = pin
+        action("judge-pin", inputs=[("judge_pin_input", json_digest(pin_input))], output_digest=pin)
 
         # 2. Read the day's range: the cases the book committed that day.
         cases = []
@@ -259,10 +275,10 @@ def main(argv):
             if isinstance(body, dict) and isinstance(body.get("case"), dict):
                 cases.append((entry["capsule_id"], body))
         log["cases"] = len(cases)
+        action("read-range", output_digest=json_digest(sorted(cid for cid, _ in cases)))
 
         # 3-4. Authenticate each case, judge/recompute it per clause, seal the report.
         reports, verdicts = [], {}
-        stamp = f"{day}T23:59:59Z"
         for capsule_id, body in cases:
             verify(ctl, profile, capsule_id, work)
             c = body["case"]
@@ -297,13 +313,17 @@ def main(argv):
                                        case_id, capsule_id, pin, day,
                                        contract_ref=spec.get("contract_ref"), judge_pin=pin_input,
                                        pack_source_digest=spec.get("pack_source_digest"))
+                judged = report["epistemic_type"] == "semantic_judgment"
                 rid = publish(ctl, profile, seal_request(
                     f"urn:evidencebook-skills:evaluation-report:{case_id}:{clause['id']}", operator,
-                    "evidencebook-skills/daily-judge-and-close", stamp, report), work, f"report-{capsule_id[:16]}")
+                    "evidencebook-skills/daily-judge-and-close", stamp, report,
+                    judged_from=capsule_id if judged else None), work, f"report-{capsule_id[:16]}")
                 reports.append(rid)
                 verdicts[answer["verdict"]] = verdicts.get(answer["verdict"], 0) + 1
         log["reports"] = reports
         log["verdicts"] = verdicts
+        # Every case above verified before it was acted on; one record of that step.
+        action("verify", output_digest=json_digest(sorted(cid for cid, _ in cases)))
 
         # 5. Seal the day's Close. No peer bundle is held: it is unilateral.
         close_args = ["close", "--profile", profile, "--period", "day", "--date", str(day),

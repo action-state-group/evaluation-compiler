@@ -134,9 +134,11 @@ for id in $("$ctl" cll list --profile tau2 --limit 1000 | jq -r '.entries[].caps
 done
 "$ctl" verify --profile tau2 --capsule "$(jq -r .close.capsule "$work/daily.json")" >/dev/null || fail "Close does not verify"
 verified=$((verified + 1))
-printf '%s records verified with capsulectl verify (cases, reports, Close)\n' "$verified"
-expected_verified=$((CASES + expected_reports + 1))
-[[ "$verified" -eq "$expected_verified" ]] || fail "verified $verified records, expected $expected_verified ($CASES cases + $expected_reports reports + 1 Close)"
+actions=$(jq '.actions | length' "$work/daily.json")
+[[ "$actions" -gt 0 ]] || fail "the daily run sealed no skill-action records"
+printf '%s records verified with capsulectl verify (cases, reports, skill actions, Close)\n' "$verified"
+expected_verified=$((CASES + expected_reports + actions + 1))
+[[ "$verified" -eq "$expected_verified" ]] || fail "verified $verified records, expected $expected_verified ($CASES cases + $expected_reports reports + $actions skill actions + 1 Close)"
 
 step "the day's bundle verifies with the neutral AAC bundle verifier"
 bundle=$(jq -r .close.bundle "$work/daily.json")

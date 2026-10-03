@@ -20,8 +20,8 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from capsulectl_calls import (EvidenceUnavailable, list_capsules, payload, publish,  # noqa: E402
-                              run, seal_request, verify)
+from capsulectl_calls import (EvidenceUnavailable, emit_skill_action, json_digest, list_capsules,  # noqa: E402
+                              payload, publish, run, seal_request, sha256_file, skill_action_record, verify)
 
 SAMPLING_RULE = ("per stratum, order by hex(SHA-256(u32be(len(seed)) || seed || report_capsule_id)), "
                  "ties by capsule id, take the first n (docs/calibration-sampling-spec.md)")
@@ -92,6 +92,15 @@ def main(argv):
     operator = run(ctl, "profile", "show", profile)["Operator"]
     stamp = f"{monday + datetime.timedelta(days=6)}T23:59:59Z"
     log = {"skill": "weekly-blind-expert", "week": week_key, "profile": profile}
+    actions = log["actions"] = []
+    # The rubric the human rates against is the contract's pinned axes, when it names them.
+    axes = (spec.get("judge") or {}).get("axes")
+    rubric_digest = sha256_file(args.spec.resolve().parents[2] / axes) if axes else None
+
+    def action(name, **fields):
+        """Seal one skill action of this run (scripts/capsulectl_calls.py, skill-action/v1)."""
+        actions.append(emit_skill_action(ctl, profile, work, operator, stamp,
+                                         skill_action_record("weekly-blind-expert", name, **fields)))
 
     try:
         # 1. The week's evaluation reports, authenticated before sampling.
@@ -105,6 +114,7 @@ def main(argv):
             verify(ctl, profile, entry["capsule_id"], work)
             reports.append((entry["capsule_id"], body))
         log["frame"] = len(reports)
+        action("read-frame", output_digest=json_digest(sorted(rid for rid, _ in reports)))
 
         # 2. Draw the sample and seal the manifest before anyone sees a case.
         policy = spec["sample_policy"]
@@ -127,13 +137,16 @@ def main(argv):
 
         # 3. Blind packets: the case and the evidence the judge had; never the
         #    verdict, rationale, axis judgments, stratum or report id.
-        by_case = {}
+        by_case, written = {}, {}
         for rid, body in selected:
             case = payload(ctl, profile, body["source_capsule_id"])
             packet = blind_packet(body, case)
             name = body["case_id"].replace(":", "_")
             (packets / f"{name}.json").write_text(json.dumps(packet, indent=2))
             by_case[body["case_id"]] = (rid, body)
+            written[name] = packet
+        # What the reviewer is shown, as a digest: the disclosure itself is a skill action.
+        action("blind-packets", inputs=[("sample_manifest", manifest_id)], output_digest=json_digest(written))
 
         if args.ratings is None:
             log["status"] = f"awaiting the human's blind ratings for {len(selected)} case(s) in {packets}"
@@ -151,9 +164,14 @@ def main(argv):
             record = {"record_type": "human-rating/v1", "epistemic_type": "human_report", "blind": True,
                       "case_id": r["case_id"], "rating": r["rating"], "audits": rid,
                       "sample_manifest": manifest_id, "period": week_key}
+            # A rating is a judgment: it names the rubric and cites the case it judged.
+            # A human runs under no judge parameters, so there is no judge_parameters_digest.
+            if rubric_digest is not None:
+                record["rubric_digest"] = rubric_digest
             publish(ctl, profile, seal_request(
                 f"urn:evidencebook-skills:human-rating:{r['case_id']}:{week_key}", operator,
-                "evidencebook-skills/weekly-blind-expert", stamp, record), work, f"rating-{rid[:16]}")
+                "evidencebook-skills/weekly-blind-expert", stamp, record,
+                judged_from=body["source_capsule_id"]), work, f"rating-{rid[:16]}")
             rated.append({"case_id": r["case_id"], "rating": r["rating"]})
         log["rated"] = len(rated)
         log["shortfall"] = len(selected) - len(rated)
