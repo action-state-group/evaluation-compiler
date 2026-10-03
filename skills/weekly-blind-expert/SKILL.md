@@ -65,7 +65,8 @@ rules still apply.
 `scripts/run_weekly.py` seals one `skill-action/v1` capsule each for the week's frame
 read and the blind packets handed to the reviewer (their digest, never their content).
 The manifest, each rating, the calibration summary and the Close are their own
-capsules. Any action run by hand seals one capsule too.
+capsules. A rating is a judgment: it cites the case it rated as `judged_from` and
+copies `rubric_digest` from the report it audits. Any action run by hand seals one capsule too.
 Seal it with `scripts/skill_action.py`. That is one `skill-action/v1` capsule with
 digests only (inputs, stdout, argv), never contents, paths, profile or environment.
 For example:

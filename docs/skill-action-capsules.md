@@ -48,11 +48,37 @@ that seal evaluation reports. `scripts/skill_record.py` builds it.
 | | draw the sample | the `sample-manifest/v1` |
 | | hand out blind packets | `skill-action/v1` (input: the manifest; output: JSON-DIGEST of the packets) |
 | | a human rating, calibration summary, close | their own capsules |
-| daily-judge-and-close | judge, close | the evaluation reports and the Close |
+| daily-judge-and-close | judge pin | `skill-action/v1` (input: JSON-DIGEST of the pin input; output: the pin digest) |
+| | read the day's range | `skill-action/v1` (output: JSON-DIGEST of the sorted case capsule_ids) |
+| | judge or recompute a clause | the `evaluation-report/v1` |
+| | verify the day's cases | `skill-action/v1` (output: JSON-DIGEST of the verified capsule_ids) |
+| | close | the Close capsule |
 | any skill, by hand | install, discover, map, contract validate, judge pin, roll-up, … | `scripts/skill_action.py --skill S --action A --at T [--input ROLE=PATH]… -- COMMAND` |
 
 Records the skills already sealed are not duplicated: a report, a manifest, a rating
 or a Close *is* the record of the action that produced it.
+
+## Judgment names
+
+A record that is a judgment uses these names:
+
+| name | where | value today |
+|---|---|---|
+| `judged_from` | Capsule `references[]` | `{type: agent-action-capsule, digest_alg: SHA-256, digest: <capsule_id judged>, citation_purpose: judged_from}` |
+| `rubric_digest` | payload | a judged report: the pinned axes digest; a human rating: copied from the report it audits |
+| `judge_parameters_digest` | payload | a judged report: the judge pin digest |
+
+- **Which records.** A judged `evaluation-report/v1` carries all three. A
+  `human-rating/v1` carries `judged_from` (the case it rated) and the audited report's
+  `rubric_digest`. A recomputed report is not a judgment and carries none of them.
+- **Status.** These are provisional names. `judged_from` is committed into
+  `capsule_id` and verifies with `capsulectl publish` on capsule-cli main.
+- **Interim construction.** The `rubric_digest` and `judge_parameters_digest` values
+  above are not yet built the way the judgment extension proposes. That proposal
+  builds them as JSON-DIGESTs of the rubric document and of the judge's parameters
+  (identity excluded), in the compute attestation's judgment member, with a human's
+  parameters being its protocol and packet digest. They follow that construction and
+  placement once it is ratified and `capsulectl publish` accepts the member.
 
 ## Readers
 

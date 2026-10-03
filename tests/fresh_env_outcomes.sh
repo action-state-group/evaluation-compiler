@@ -62,7 +62,7 @@ ctl=$work/bin/capsulectl
 step "a venv with jevals (scripts/judges/jev_judge.py's only dependency beyond stdlib)"
 python3 -m venv "$work/venv"
 "$work/venv/bin/pip" install --quiet --upgrade pip
-"$work/venv/bin/pip" install --quiet jevals
+"$work/venv/bin/pip" install --quiet jevals -r "$work/skills/requirements.txt"
 export PATH="$work/venv/bin:$PATH"
 python3 -c "import jevals; print('jevals', __import__('importlib.metadata', fromlist=['version']).version('jevals'))"
 

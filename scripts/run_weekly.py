@@ -162,9 +162,15 @@ def main(argv):
             record = {"record_type": "human-rating/v1", "epistemic_type": "human_report", "blind": True,
                       "case_id": r["case_id"], "rating": r["rating"], "audits": rid,
                       "sample_manifest": manifest_id, "period": week_key}
+            # A rating is a judgment of the case: it cites the case as judged_from and
+            # rates against the rubric the audited report was judged under, copied from
+            # that report (never re-read from today's files).
+            if body.get("rubric_digest") is not None:
+                record["rubric_digest"] = body["rubric_digest"]
             publish(ctl, profile, seal_request(
                 f"urn:evidencebook-skills:human-rating:{r['case_id']}:{week_key}", operator,
-                "evidencebook-skills/weekly-blind-expert", stamp, record), work, f"rating-{rid[:16]}")
+                "evidencebook-skills/weekly-blind-expert", stamp, record,
+                judged_from=body["source_capsule_id"]), work, f"rating-{rid[:16]}")
             rated.append({"case_id": r["case_id"], "rating": r["rating"]})
         log["rated"] = len(rated)
         log["shortfall"] = len(selected) - len(rated)

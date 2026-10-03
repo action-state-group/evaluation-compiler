@@ -56,8 +56,9 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from capsulectl_calls import (EvidenceUnavailable, committed_on, emit_skill_action, json_digest,  # noqa: E402
-                              list_capsules, payload, publish, run, seal_request, skill_action_record, verify)
+from capsulectl_calls import (EvidenceUnavailable, committed_on, list_capsules, payload,  # noqa: E402
+                              publish, run, seal_request, verify)
+from skill_record import emit_skill_action, json_digest, skill_action_record  # noqa: E402
 from judge_pin import DEFAULT_JUDGE_TIMEOUT, describe_judge, pin_input as build_pin_input  # noqa: E402
 from recompute import RECOMPUTE_CHECKS  # noqa: E402
 
@@ -253,7 +254,7 @@ def main(argv):
     actions = log["actions"] = []
 
     def action(name, **fields):
-        """Seal one skill action of this run (scripts/capsulectl_calls.py, skill-action/v1)."""
+        """Seal one skill action of this run (scripts/skill_record.py, skill-action/v1)."""
         actions.append(emit_skill_action(ctl, profile, work, operator, stamp,
                                          skill_action_record("daily-judge-and-close", name, **fields)))
 

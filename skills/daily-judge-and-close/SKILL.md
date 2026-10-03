@@ -59,8 +59,12 @@ on the tau2 airline book. Still pending: the `capsulectl-engine` plugin, so a co
 
 ## Every action seals a record
 
-Each report and the Close are the records of the judging and closing they did. Any
-other action, such as `judge pin` run on its own or a roll-up, seals one capsule.
+`scripts/run_daily.py` seals one `skill-action/v1` capsule each for the judge pin, the
+day's range read and the verification of its cases. Each judged report is itself the
+judgment's capsule. It carries `rubric_digest` and `judge_parameters_digest`, and
+cites the case capsule it judged as `judged_from` in its references. A recomputed
+report is not a judgment and carries none of these. The Close is its own capsule.
+Any other action run by hand, such as a roll-up, seals one capsule.
 Seal it with `scripts/skill_action.py`. That is one `skill-action/v1` capsule with
 digests only (inputs, stdout, argv), never contents, paths, profile or environment.
 For example:
