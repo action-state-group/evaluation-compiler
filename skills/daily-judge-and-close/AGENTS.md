@@ -57,6 +57,24 @@ on the tau2 airline book. Still pending: the `capsulectl-engine` plugin, so a co
   has already sealed and held. A day with an INSUFFICIENT count is reported as exactly
   that, never rounded up to MATCHED or silently dropped from the day's tally.
 
+## Every action seals a record
+
+Each report and the Close are the records of the judging and closing they did. Any
+other action, such as `judge pin` run on its own or a roll-up, seals one capsule.
+Seal it with `scripts/skill_action.py`. That is one `skill-action/v1` capsule with
+digests only (inputs, stdout, argv), never contents, paths, profile or environment.
+For example:
+
+```sh
+python3 scripts/skill_action.py --profile NAME --skill daily-judge-and-close --action judge-pin \
+    --at 2026-09-23T23:59:59Z --input pin_input=PIN.json -- capsulectl judge pin PIN.json
+```
+
+`--at` fixes the capsule's timestamp, so a re-run with the same `--at` seals nothing
+new. A failed action is sealed too (`outcome: failed`). If its record cannot be sealed,
+the action reports `evidence unavailable` and the skill stops there. See
+`docs/skill-action-capsules.md`.
+
 ## Evidence policy
 
 Every consequential action here (a fold result committed, a judgment sealed, a Close

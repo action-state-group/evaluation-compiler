@@ -6,3 +6,6 @@
 
 .DS_Store
 __pycache__/
+
+# skill_action.py keeps each exact seal request here before publishing
+.skill-actions/
