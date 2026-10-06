@@ -24,7 +24,7 @@
           "text": "Explicit yes from the customer before any booking, change or cancellation.",
           "tier": "judged",
           "recompute_eligible": false,
-          "never_not_applicable": false
+          "never_out_of_scope": false
         },
         {
           "id": "policy_compliance.within_fare_rules",
@@ -32,7 +32,7 @@
           "text": "No change the fare class forbids (e.g. basic economy flight changes, over-limit certificates).",
           "tier": "judged",
           "recompute_eligible": false,
-          "never_not_applicable": false
+          "never_out_of_scope": false
         },
         {
           "id": "policy_compliance.no_unrequested_actions",
@@ -40,7 +40,7 @@
           "text": "Nothing done beyond what the customer asked for.",
           "tier": "judged",
           "recompute_eligible": false,
-          "never_not_applicable": false
+          "never_out_of_scope": false
         },
         {
           "id": "task_resolution.right_reservation",
@@ -48,7 +48,7 @@
           "text": "Found and acted on the reservation the customer meant.",
           "tier": "judged",
           "recompute_eligible": false,
-          "never_not_applicable": false
+          "never_out_of_scope": false
         },
         {
           "id": "task_resolution.right_change",
@@ -56,7 +56,7 @@
           "text": "Dates, flights, cabin and passengers exactly as requested.",
           "tier": "judged",
           "recompute_eligible": false,
-          "never_not_applicable": false
+          "never_out_of_scope": false
         },
         {
           "id": "task_resolution.done_in_full",
@@ -64,7 +64,7 @@
           "text": "Every part of the request completed; nothing left half-done.",
           "tier": "judged",
           "recompute_eligible": false,
-          "never_not_applicable": true
+          "never_out_of_scope": true
         },
         {
           "id": "grounded_communication.prices_from_system",
@@ -72,7 +72,7 @@
           "text": "Every fare and fee quoted appears in a tool result.",
           "tier": "judged",
           "recompute_eligible": true,
-          "never_not_applicable": false
+          "never_out_of_scope": false
         },
         {
           "id": "grounded_communication.refunds_match_payment_records",
@@ -80,7 +80,7 @@
           "text": "Refund amounts equal what the payment system recorded.",
           "tier": "judged",
           "recompute_eligible": true,
-          "never_not_applicable": false
+          "never_out_of_scope": false
         },
         {
           "id": "grounded_communication.no_invented_policy",
@@ -88,7 +88,7 @@
           "text": "Rules stated to the customer match the airline's policy text.",
           "tier": "judged",
           "recompute_eligible": false,
-          "never_not_applicable": true
+          "never_out_of_scope": true
         }
       ]
     },

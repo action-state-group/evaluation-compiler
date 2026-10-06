@@ -1,13 +1,13 @@
 {
   "contract": "airline-support-outcomes/v1",
   "contract_version": "rubric-v3.3",
-  "contract_ref": "airline-support-outcomes@1.4.0",
+  "contract_ref": "airline-support-outcomes@1.5.0",
   "outcome_statement": "The customer's request is resolved correctly, within airline policy",
-  "resolution_rule": "a conversation is resolved only when at least one criterion is met and every other required criterion is met or, where allowed, not applicable (scripts/rollup.py:all_required_met)",
+  "resolution_rule": "a conversation is resolved only when at least one criterion is met and every required criterion that applies to it is met; a criterion judged out_of_scope, where allowed, does not apply and never counts toward resolution (scripts/rollup.py:all_required_met)",
   "counterparty": "SAMPLE-PLACEHOLDER-no-counterparty",
   "counterparty_note": "SAMPLE PLACEHOLDER, not a party: this contract has no counterparty, so every Close is unilateral. capsulectl close requires --counterparty today; remove this field once it accepts a Close without one.",
   "source": "the outcome card's nine criteria, verbatim wording",
-  "decision_note": "Every criterion compiles with tier: judged for now (2026-09-30). recompute_eligible records which ones are candidates for a later tier: recomputed switch (see each criterion's recompute_note); flipping a tier later is a value change on this file, not a schema change. The switch defaults below were set on 2026-10-01: within_fare_rules stays judged (semantic first, deterministic later); \"does not apply\" is an answer, so not_applicable_verdict is on; and a policy-correct refusal counts as done in full, so done_in_full_refusal_aware is on.",
+  "decision_note": "Every criterion compiles with tier: judged for now (2026-09-30). recompute_eligible records which ones are candidates for a later tier: recomputed switch (see each criterion's recompute_note); flipping a tier later is a value change on this file, not a schema change. The switch defaults below were set on 2026-10-01: within_fare_rules stays judged (semantic first, deterministic later); \"does not apply\" is an answer, so out_of_scope_verdict is on; and a policy-correct refusal counts as done in full, so done_in_full_refusal_aware is on.",
   "clauses": [
     {
       "id": "policy_compliance.confirmed_before_acting",
@@ -73,7 +73,7 @@
       "tier": "judged",
       "recompute_eligible": false,
       "recompute_note": "Requires enumerating everything the customer asked for across the whole conversation and checking each part landed -- semantic, not a lookup.",
-      "never_not_applicable": true,
+      "never_out_of_scope": true,
       "claim_switch": {
         "flag": "done_in_full_refusal_aware",
         "claim_when_on": "Every part of the request was either completed or correctly refused under policy; nothing left half-done.",
@@ -109,7 +109,7 @@
       "tier": "judged",
       "recompute_eligible": false,
       "recompute_note": "A stricter variant could substring-match stated rules against airline-data/policy.md, but real phrasing paraphrases the policy rather than quoting it, so a substring match would false-negative constantly. Judged.",
-      "never_not_applicable": true
+      "never_out_of_scope": true
     }
   ],
   "judge": {
@@ -128,13 +128,13 @@
   "disclosure": {
     "suppress": []
   },
-  "pack_source_digest": "3653acacc0af48515cfa33d0829f10def60072e77d750e875562d6373b570419",
+  "pack_source_digest": "40a4f6278511c972232293efb6cacca359641d81a04e268cd2c7c3f59870c9bc",
   "switches": {
     "within_fare_rules_recomputed": false,
-    "not_applicable_verdict": true,
+    "out_of_scope_verdict": true,
     "done_in_full_refusal_aware": true
   },
-  "switches_note": "Rubric switches added after the first live run's audit. within_fare_rules_recomputed stays off (semantic first, deterministic later); not_applicable_verdict and done_in_full_refusal_aware default on. A criterion marked never_not_applicable is never offered not_applicable, whatever the switch says.",
+  "switches_note": "Rubric switches added after the first live run's audit. within_fare_rules_recomputed stays off (semantic first, deterministic later); out_of_scope_verdict and done_in_full_refusal_aware default on. A criterion marked never_out_of_scope is never offered out_of_scope, whatever the switch says.",
   "judge_batch": true,
   "judge_batch_note": "Always on (a cost fix, not a rubric change: the policy text was being sent once per criterion, nine times per conversation). scripts/run_daily.py's judge_batch() sends every judged clause of one conversation in a single judge-cmd call; scripts/judges/jev_judge.py's judge_many() packs them into one backend request while still sealing one evaluation-report/v1 per criterion."
 }

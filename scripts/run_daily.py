@@ -42,8 +42,8 @@ doesn't set judge_batch keeps calling judge() once per clause, unchanged.
 
 The judge pin (scripts/judge_pin.py) covers the model id, the compiled prompt and
 axes, the sampling params, the pack source's digest and the instruction template the
-judge command reports sending; a clause marked never_not_applicable is never offered
-not_applicable. Every judge-cmd call runs under --judge-timeout, and an unparseable
+judge command reports sending; a clause marked never_out_of_scope is never offered
+out_of_scope. Every judge-cmd call runs under --judge-timeout, and an unparseable
 or incomplete answer stops the run with `evidence unavailable`, never a crash.
 """
 
@@ -62,13 +62,13 @@ from judge_pin import DEFAULT_JUDGE_TIMEOUT, describe_judge, pin_input as build_
 from recompute import RECOMPUTE_CHECKS  # noqa: E402
 
 VERDICTS = {"met", "not_met", "not_evaluable"}
-VERDICTS_WITH_NA = VERDICTS | {"not_applicable"}
+VERDICTS_WITH_OOS = VERDICTS | {"out_of_scope"}
 
 
 def checked_answer(answer, valid_verdicts=VERDICTS):
     """The judge's (or checker's) answer, refused unless it carries one of the
-    allowed verdicts -- VERDICTS, or VERDICTS_WITH_NA when the contract's
-    not_applicable_verdict switch is on for this clause."""
+    allowed verdicts -- VERDICTS, or VERDICTS_WITH_OOS when the contract's
+    out_of_scope_verdict switch is on for this clause."""
     if not isinstance(answer, dict) or answer.get("verdict") not in valid_verdicts:
         raise EvidenceUnavailable(f"judge returned no valid verdict: {answer!r}")
     return answer
@@ -96,21 +96,21 @@ def effective_claim(clause, switches):
     return clause["claim"]
 
 
-def _judge_request(case_payload, spec_root, judge_model_id, allow_not_applicable, min_confidence=None):
+def _judge_request(case_payload, spec_root, judge_model_id, allow_out_of_scope, min_confidence=None):
     request = {"case": case_payload["case"], "agent_interaction": case_payload["agent_interaction"],
                "policy": str(spec_root / "airline-data" / "policy.md"),
                "booking_db": str(spec_root / "airline-data" / "db.json"),
-               "judge_model_id": judge_model_id, "allow_not_applicable": allow_not_applicable}
+               "judge_model_id": judge_model_id, "allow_out_of_scope": allow_out_of_scope}
     if min_confidence is not None:
         request["min_confidence"] = min_confidence
     return request
 
 
-def valid_verdicts(clause, allow_not_applicable):
-    """VERDICTS, plus not_applicable when the switch is on and the clause may be
-    not applicable at all (never_not_applicable clauses may not)."""
-    if allow_not_applicable and not clause.get("never_not_applicable"):
-        return VERDICTS_WITH_NA
+def valid_verdicts(clause, allow_out_of_scope):
+    """VERDICTS, plus out_of_scope when the switch is on and the clause may be
+    out of scope at all (never_out_of_scope clauses may not)."""
+    if allow_out_of_scope and not clause.get("never_out_of_scope"):
+        return VERDICTS_WITH_OOS
     return VERDICTS
 
 
@@ -132,28 +132,28 @@ def _call_judge(cmd, request, timeout):
         raise EvidenceUnavailable(f"judge output is not JSON: {e}")
 
 
-def judge(cmd, case_payload, clause, spec_root, judge_model_id, allow_not_applicable=False,
+def judge(cmd, case_payload, clause, spec_root, judge_model_id, allow_out_of_scope=False,
           min_confidence=None, timeout=DEFAULT_JUDGE_TIMEOUT):
     """Judge exactly one clause with one judge-cmd call. What demo/tau2/compiled.json
     (tests/stub_judge.py) and any contract without "judge_batch": true uses."""
-    request = dict(_judge_request(case_payload, spec_root, judge_model_id, allow_not_applicable, min_confidence),
+    request = dict(_judge_request(case_payload, spec_root, judge_model_id, allow_out_of_scope, min_confidence),
                    clause=clause)
-    return checked_answer(_call_judge(cmd, request, timeout), valid_verdicts(clause, allow_not_applicable))
+    return checked_answer(_call_judge(cmd, request, timeout), valid_verdicts(clause, allow_out_of_scope))
 
 
-def judge_batch(cmd, case_payload, clauses, spec_root, judge_model_id, allow_not_applicable=False,
+def judge_batch(cmd, case_payload, clauses, spec_root, judge_model_id, allow_out_of_scope=False,
                 min_confidence=None, timeout=DEFAULT_JUDGE_TIMEOUT):
     """Judge every clause in `clauses` with ONE judge-cmd call: one conversation,
     one policy text, one request. clause_id -> checked answer, one entry per
     clause passed in -- a judge command that drops or invents a clause id fails
     this closed via checked_answer(), same as a bad single-clause answer would."""
-    request = dict(_judge_request(case_payload, spec_root, judge_model_id, allow_not_applicable, min_confidence),
+    request = dict(_judge_request(case_payload, spec_root, judge_model_id, allow_out_of_scope, min_confidence),
                    clauses=clauses)
     parsed = _call_judge(cmd, request, timeout)
     if not isinstance(parsed, dict) or not isinstance(parsed.get("answers"), dict):
         raise EvidenceUnavailable(f"judge returned no valid batch answers: {parsed!r}")
     return {clause["id"]: checked_answer(parsed["answers"].get(clause["id"]),
-                                         valid_verdicts(clause, allow_not_applicable))
+                                         valid_verdicts(clause, allow_out_of_scope))
             for clause in clauses}
 
 
@@ -231,7 +231,7 @@ def main(argv):
     root = args.spec.resolve().parents[2]
     spec = json.loads(args.spec.read_text())
     switches = spec.get("switches") or {}
-    allow_not_applicable = bool(switches.get("not_applicable_verdict"))
+    allow_out_of_scope = bool(switches.get("out_of_scope_verdict"))
     judge_batch_mode = bool(spec.get("judge_batch"))
     min_confidence = (spec.get("judge") or {}).get("min_confidence")
     day = datetime.date.fromisoformat(args.date)
@@ -281,12 +281,12 @@ def main(argv):
             if judged_clauses:
                 if judge_batch_mode:
                     answers.update(judge_batch(args.judge_cmd, body, judged_clauses, root,
-                                                args.judge_model_id, allow_not_applicable,
+                                                args.judge_model_id, allow_out_of_scope,
                                                 min_confidence, args.judge_timeout))
                 else:
                     for clause in judged_clauses:
                         answers[clause["id"]] = judge(args.judge_cmd, body, clause, root,
-                                                       args.judge_model_id, allow_not_applicable,
+                                                       args.judge_model_id, allow_out_of_scope,
                                                        min_confidence, args.judge_timeout)
 
             for clause in spec["clauses"]:

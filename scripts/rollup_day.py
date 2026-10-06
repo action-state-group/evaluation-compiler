@@ -6,7 +6,7 @@ all-required verdicts plus a Result v0 document (scripts/result_v0.py) -- the in
 `capsulectl result build` takes.
 
 Pack-driven: the check groupings, the full criteria set, each clause's EFFECTIVE
-tier (its tier_switch applied) and the never_not_applicable set all come from
+tier (its tier_switch applied) and the never_out_of_scope set all come from
 --spec's own clauses[] and switches, never from code here.
 
 Pin-scoped whenever a judge model id is available (--judge-model-id, or
@@ -45,7 +45,7 @@ from judge_pin import DEFAULT_JUDGE_TIMEOUT, describe_judge, pin_input  # noqa: 
 from result_v0 import (build_result_v0, build_result_v0_for_day, headline_from_result,  # noqa: E402
                        resolve_contract_ref)
 from rollup import (RollupError, all_criteria_from_clauses, all_required_met,  # noqa: E402
-                    checks_from_clauses, check_verdicts, never_not_applicable_from_clauses)
+                    checks_from_clauses, check_verdicts, never_out_of_scope_from_clauses)
 from run_daily import effective_tier  # noqa: E402
 
 
@@ -197,13 +197,13 @@ def partition_stale(clause_verdicts, all_criteria):
 
 
 def rollup_case(case_id, clause_verdicts, generated_at, checks, all_criteria, contract_ref, tiers,
-                allow_not_applicable=False, never_not_applicable=frozenset()):
+                allow_out_of_scope=False, never_out_of_scope=frozenset()):
     verdicts = {cid: v for cid, (v, _) in clause_verdicts.items()}
     digests = {cid: cap_id for cid, (_, cap_id) in clause_verdicts.items()}
-    check_results = check_verdicts(verdicts, checks, allow_not_applicable)
-    resolved = all_required_met(verdicts, all_criteria, allow_not_applicable, never_not_applicable)
+    check_results = check_verdicts(verdicts, checks, allow_out_of_scope)
+    resolved = all_required_met(verdicts, all_criteria, allow_out_of_scope, never_out_of_scope)
     result_v0, resolved_again = build_result_v0(case_id, verdicts, digests, generated_at, all_criteria, contract_ref,
-                                                 tiers, allow_not_applicable, never_not_applicable)
+                                                 tiers, allow_out_of_scope, never_out_of_scope)
     assert resolved == resolved_again  # same rollup, computed twice on purpose: must agree
     return {
         "case_id": case_id,
@@ -215,7 +215,7 @@ def rollup_case(case_id, clause_verdicts, generated_at, checks, all_criteria, co
 
 
 def day_document(period, day_cases, generated_at, all_criteria, contract_ref, tiers,
-                 allow_not_applicable=False, never_not_applicable=frozenset()):
+                 allow_out_of_scope=False, never_out_of_scope=frozenset()):
     """Pure: one day's Result v0 over every case that can be rolled up, plus the
     list of cases left out and why -- nothing is dropped silently. Returns
     (document or None, skipped)."""
@@ -230,7 +230,7 @@ def day_document(period, day_cases, generated_at, all_criteria, contract_ref, ti
         digests = {cid: cap_id for cid, (_, cap_id) in current.items()}
         try:
             build_result_v0_for_day(period, [(case_id, verdicts, digests, tiers)], generated_at, all_criteria,
-                                    contract_ref, allow_not_applicable, never_not_applicable)
+                                    contract_ref, allow_out_of_scope, never_out_of_scope)
         except RollupError as e:
             skipped.append({"case_id": case_id, "reason": str(e)})
             continue
@@ -238,7 +238,7 @@ def day_document(period, day_cases, generated_at, all_criteria, contract_ref, ti
     if not case_rollups:
         return None, skipped
     return build_result_v0_for_day(period, case_rollups, generated_at, all_criteria, contract_ref,
-                                   allow_not_applicable, never_not_applicable), skipped
+                                   allow_out_of_scope, never_out_of_scope), skipped
 
 
 def main(argv):
@@ -270,8 +270,8 @@ def main(argv):
     checks = checks_from_clauses(spec["clauses"])
     all_criteria = all_criteria_from_clauses(spec["clauses"])
     tiers = clause_tiers(spec)
-    never_na = never_not_applicable_from_clauses(spec["clauses"])
-    allow_not_applicable = bool((spec.get("switches") or {}).get("not_applicable_verdict"))
+    never_oos = never_out_of_scope_from_clauses(spec["clauses"])
+    allow_out_of_scope = bool((spec.get("switches") or {}).get("out_of_scope_verdict"))
     args.out.mkdir(parents=True, exist_ok=True)
     work = args.out / "work"
     work.mkdir(parents=True, exist_ok=True)
@@ -301,7 +301,7 @@ def main(argv):
             continue
         try:
             case_rollup = rollup_case(case_id, current, args.generated_at, checks, all_criteria, contract_ref, tiers,
-                                      allow_not_applicable, never_na)
+                                      allow_out_of_scope, never_oos)
         except RollupError as e:
             incomplete.append({"case_id": case_id, "error": str(e)})
             continue
@@ -315,7 +315,7 @@ def main(argv):
     day_results = []
     for period, day_cases in sorted(by_day.items(), key=lambda kv: (kv[0] is None, kv[0])):
         day_doc, skipped = day_document(period, day_cases, args.generated_at, all_criteria, contract_ref, tiers,
-                                        allow_not_applicable, never_na)
+                                        allow_out_of_scope, never_oos)
         entry = {"period": period, "cases_skipped": skipped}
         if day_doc is not None:
             day_label = period.split(":", 1)[1] if period and ":" in period else (period or "unknown-period")

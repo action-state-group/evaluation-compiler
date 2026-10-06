@@ -17,7 +17,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts" /
 from capsulectl_calls import EvidenceUnavailable  # noqa: E402
 from judge_pin import describe_judge, pin_input  # noqa: E402
 from run_daily import (build_report, checked_answer, effective_claim, effective_tier,  # noqa: E402
-                       judge, judge_batch, recomputed_answer, valid_verdicts, VERDICTS, VERDICTS_WITH_NA)
+                       judge, judge_batch, recomputed_answer, valid_verdicts, VERDICTS, VERDICTS_WITH_OOS)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WITHIN_FARE_RULES = {
@@ -68,12 +68,17 @@ class CheckedAnswer(unittest.TestCase):
         for v in VERDICTS:
             self.assertEqual(checked_answer({"verdict": v})["verdict"], v)
 
-    def test_default_vocabulary_refuses_not_applicable(self):
+    def test_default_vocabulary_refuses_out_of_scope(self):
         with self.assertRaises(EvidenceUnavailable):
-            checked_answer({"verdict": "not_applicable"})
+            checked_answer({"verdict": "out_of_scope"})
 
-    def test_with_na_vocabulary_accepts_not_applicable(self):
-        self.assertEqual(checked_answer({"verdict": "not_applicable"}, VERDICTS_WITH_NA)["verdict"], "not_applicable")
+    def test_with_oos_vocabulary_accepts_out_of_scope(self):
+        self.assertEqual(checked_answer({"verdict": "out_of_scope"}, VERDICTS_WITH_OOS)["verdict"], "out_of_scope")
+
+    def test_not_applicable_is_refused_even_with_the_out_of_scope_vocabulary(self):
+        self.assertNotIn("not_applicable", VERDICTS_WITH_OOS)
+        with self.assertRaises(EvidenceUnavailable):
+            checked_answer({"verdict": "not_applicable"}, VERDICTS_WITH_OOS)
 
 
 class RecomputedAnswer(unittest.TestCase):
@@ -130,12 +135,12 @@ class JudgeBatch(unittest.TestCase):
         with self.assertRaises(EvidenceUnavailable):
             judge_batch(cmd, self.CASE_PAYLOAD, self.CLAUSES, ROOT, "jev-1.13.0")
 
-    def test_not_applicable_is_refused_unless_allowed(self):
-        cmd = self._fake_judge_cmd({c["id"]: {"verdict": "not_applicable", "rationale": "n/a"} for c in self.CLAUSES})
+    def test_out_of_scope_is_refused_unless_allowed(self):
+        cmd = self._fake_judge_cmd({c["id"]: {"verdict": "out_of_scope", "rationale": "n/a"} for c in self.CLAUSES})
         with self.assertRaises(EvidenceUnavailable):
-            judge_batch(cmd, self.CASE_PAYLOAD, self.CLAUSES, ROOT, "jev-1.13.0", allow_not_applicable=False)
-        answers = judge_batch(cmd, self.CASE_PAYLOAD, self.CLAUSES, ROOT, "jev-1.13.0", allow_not_applicable=True)
-        self.assertTrue(all(a["verdict"] == "not_applicable" for a in answers.values()))
+            judge_batch(cmd, self.CASE_PAYLOAD, self.CLAUSES, ROOT, "jev-1.13.0", allow_out_of_scope=False)
+        answers = judge_batch(cmd, self.CASE_PAYLOAD, self.CLAUSES, ROOT, "jev-1.13.0", allow_out_of_scope=True)
+        self.assertTrue(all(a["verdict"] == "out_of_scope" for a in answers.values()))
 
 
 class BuildReport(unittest.TestCase):
@@ -212,10 +217,10 @@ class JudgeCallFailures(unittest.TestCase):
         with self.assertRaisesRegex(EvidenceUnavailable, "not JSON"):
             judge_batch(cmd, self.CASE_PAYLOAD, [dict(PLAIN_CLAUSE)], ROOT, "jev-1.13.0")
 
-    def test_a_never_not_applicable_clause_refuses_not_applicable_even_when_allowed(self):
-        clause = dict(PLAIN_CLAUSE, never_not_applicable=True)
+    def test_a_never_out_of_scope_clause_refuses_out_of_scope_even_when_allowed(self):
+        clause = dict(PLAIN_CLAUSE, never_out_of_scope=True)
         self.assertEqual(valid_verdicts(clause, True), VERDICTS)
-        self.assertIn("not_applicable", valid_verdicts(dict(PLAIN_CLAUSE), True))
+        self.assertIn("out_of_scope", valid_verdicts(dict(PLAIN_CLAUSE), True))
 
 
 class PinInput(unittest.TestCase):

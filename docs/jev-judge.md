@@ -3,7 +3,7 @@
 `jev_judge.py` is the `--judge-cmd` the outcomes pack runs: it judges one recorded
 conversation against each judged criterion and answers `met`, `not_met`,
 `not_evaluable` or (when the contract allows it and the criterion may be)
-`not_applicable`. Its docstring is the full contract; this page states what a reader
+`out_of_scope`. Its docstring is the full contract; this page states what a reader
 of its verdicts needs to know.
 
 ## Calibration

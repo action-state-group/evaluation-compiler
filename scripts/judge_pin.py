@@ -8,7 +8,7 @@ moves, so two more digests and the confidence threshold ride in sampling_params
 
   - pack_source_digest: the compiled contract's digest of its whole pack source
     (scripts/pack_compile.py:source_digest). Every criterion edit and every switch
-    flip (not_applicable_verdict, done_in_full_refusal_aware, a claim_when_on
+    flip (out_of_scope_verdict, done_in_full_refusal_aware, a claim_when_on
     rewording) changes it.
   - instruction_template_digest: the digest of the instruction template the judge
     command actually sends to its model, as the judge command itself reports it

@@ -211,11 +211,11 @@ class BuildResultV0ForDay(unittest.TestCase):
                      if c["id"] == "case-a::grounded_communication.prices_from_system")
         self.assertEqual(claim["tier"], "recomputed")
 
-    def test_not_applicable_criteria_get_no_claim_at_all_across_cases(self):
-        verdicts_a = dict(ALL_MET, **{"task_resolution.right_change": "not_applicable"})
+    def test_out_of_scope_criteria_get_no_claim_at_all_across_cases(self):
+        verdicts_a = dict(ALL_MET, **{"task_resolution.right_change": "out_of_scope"})
         case_rollups = [("case-a", verdicts_a, {}, self.TIERS), ("case-b", ALL_MET, {}, self.TIERS)]
         doc = build_result_v0_for_day("day:2026-09-23", case_rollups, "2026-09-23T23:59:59Z",
-                                       ALL_CRITERIA, CONTRACT_REF, allow_not_applicable=True)
+                                       ALL_CRITERIA, CONTRACT_REF, allow_out_of_scope=True)
         self.assertEqual(len(doc["claims"]), 17)  # 8 + 9, not 9 + 9
         claim_ids = {c["id"] for c in doc["claims"]}
         self.assertNotIn("case-a::task_resolution.right_change", claim_ids)
@@ -224,26 +224,27 @@ class BuildResultV0ForDay(unittest.TestCase):
         self.assertEqual(set(doc["aggregate"]["buckets"]), {"met", "not_met", "not_evaluable"})
 
 
-class NotApplicableSwitch(unittest.TestCase):
+class OutOfScopeSwitch(unittest.TestCase):
     """Evidence Result v0's Verdict enum is closed to met/not_met/not_evaluable
     (agent-action-capsule's spec/evidence-result-v0.md: "not_applicable has no
     verdict counterpart at all -- it is excluded from the evaluated population
     entirely and only appears as aggregate.coverage.excluded_not_applicable,
-    never as a claim"). claim_for() never accepts it, with or without the
-    switch -- build_result_v0/build_result_v0_for_day filter a not_applicable
+    never as a claim"). An out_of_scope criterion -- one that does not apply to
+    this case -- is that population exclusion. claim_for() never accepts it,
+    with or without the switch -- build_result_v0/build_result_v0_for_day filter an out_of_scope
     criterion out before claim_for is ever called for it."""
 
-    def test_claim_for_never_accepts_not_applicable(self):
+    def test_claim_for_never_accepts_out_of_scope(self):
         with self.assertRaisesRegex(RollupError, "not a verdict"):
-            claim_for("x", "not_applicable", CONTRACT_REF, "judged")
+            claim_for("x", "out_of_scope", CONTRACT_REF, "judged")
 
-    def test_not_applicable_criteria_get_no_claim_at_all_not_a_bucket(self):
-        verdicts = dict(ALL_MET, **{"task_resolution.right_change": "not_applicable",
-                                     "grounded_communication.refunds_match_payment_records": "not_applicable"})
+    def test_out_of_scope_criteria_get_no_claim_at_all_not_a_bucket(self):
+        verdicts = dict(ALL_MET, **{"task_resolution.right_change": "out_of_scope",
+                                     "grounded_communication.refunds_match_payment_records": "out_of_scope"})
         doc, resolved = build_result_v0("case", verdicts, {}, "2026-09-30T00:00:00Z",
-                                         ALL_CRITERIA, CONTRACT_REF, ALL_JUDGED, allow_not_applicable=True)
-        self.assertTrue(resolved)  # not_applicable counts as passing in the rollup
-        self.assertEqual(len(doc["claims"]), 7)  # nine minus the two not_applicable
+                                         ALL_CRITERIA, CONTRACT_REF, ALL_JUDGED, allow_out_of_scope=True)
+        self.assertTrue(resolved)  # every criterion that applies is met; the two out_of_scope are set aside
+        self.assertEqual(len(doc["claims"]), 7)  # nine minus the two out_of_scope
         claim_ids = {c["id"] for c in doc["claims"]}
         self.assertNotIn("task_resolution.right_change", claim_ids)
         self.assertNotIn("grounded_communication.refunds_match_payment_records", claim_ids)
@@ -252,8 +253,27 @@ class NotApplicableSwitch(unittest.TestCase):
         self.assertEqual(doc["aggregate"]["coverage"]["excluded_not_applicable"], 2)
         self.assertEqual(doc["aggregate"]["coverage"]["evaluated_population"], 7)
 
-    def test_without_the_switch_the_same_verdicts_are_refused(self):
+    def test_out_of_scope_never_becomes_a_not_evaluable_claim(self):
+        verdicts = dict(ALL_MET, **{"task_resolution.right_change": "out_of_scope"})
+        doc, _ = build_result_v0("case", verdicts, {}, "2026-09-30T00:00:00Z",
+                                 ALL_CRITERIA, CONTRACT_REF, ALL_JUDGED, allow_out_of_scope=True)
+        self.assertEqual(doc["aggregate"]["buckets"]["not_evaluable"], [])
+        self.assertEqual(doc["aggregate"]["coverage"]["unknown_count"], 0)
+        self.assertFalse(any(c["verdict"] == "not_evaluable" or c["sufficiency"] == "GAP" for c in doc["claims"]))
+        day = build_result_v0_for_day("day:2026-09-30", [("case-a", verdicts, {}, ALL_JUDGED)],
+                                      "2026-09-30T00:00:00Z", ALL_CRITERIA, CONTRACT_REF, allow_out_of_scope=True)
+        self.assertEqual(day["aggregate"]["buckets"]["not_evaluable"], [])
+
+    def test_not_applicable_is_refused_as_an_input_verdict(self):
         verdicts = dict(ALL_MET, **{"task_resolution.right_change": "not_applicable"})
+        with self.assertRaisesRegex(RollupError, "not_applicable is not an adjudicator verdict"):
+            build_result_v0("case", verdicts, {}, "2026-09-30T00:00:00Z", ALL_CRITERIA, CONTRACT_REF, ALL_JUDGED,
+                            allow_out_of_scope=True)
+        with self.assertRaisesRegex(RollupError, "not a verdict"):
+            claim_for("x", "not_applicable", CONTRACT_REF, "judged")
+
+    def test_without_the_switch_the_same_verdicts_are_refused(self):
+        verdicts = dict(ALL_MET, **{"task_resolution.right_change": "out_of_scope"})
         with self.assertRaisesRegex(RollupError, "not a verdict"):
             build_result_v0("case", verdicts, {}, "2026-09-30T00:00:00Z", ALL_CRITERIA, CONTRACT_REF, ALL_JUDGED)
 

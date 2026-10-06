@@ -97,7 +97,7 @@ def _build_outcome_report_presentation(source):
                 "text": crit["text"],
                 "tier": crit["tier"],
                 "recompute_eligible": bool(crit.get("recompute_eligible", False)),
-                "never_not_applicable": bool(crit.get("never_not_applicable", False)),
+                "never_out_of_scope": bool(crit.get("never_out_of_scope", False)),
             })
             reason_codes[cid] = crit["label"]  # fallback: criterion's own label, never free-text parsing
     reason_codes.update(source.get("reason_code_overrides") or {})
@@ -154,6 +154,9 @@ def validate_source(source):
             for flag, val in switches.items():
                 if not isinstance(val, bool):
                     issues.append(f"switches.{flag} must be a boolean, got {val!r}")
+            if "not_applicable_verdict" in switches:
+                issues.append("switches.not_applicable_verdict is a retired name: use out_of_scope_verdict "
+                              "(the criterion does not apply here -- never met, never not_met)")
     else:
         switches = {}
 
@@ -213,8 +216,10 @@ def validate_source(source):
                 )
             if "recompute_eligible" in crit and not isinstance(crit["recompute_eligible"], bool):
                 issues.append(f"{cwhere}.recompute_eligible must be a boolean")
-            if "never_not_applicable" in crit and not isinstance(crit["never_not_applicable"], bool):
-                issues.append(f"{cwhere}.never_not_applicable must be a boolean")
+            if "never_out_of_scope" in crit and not isinstance(crit["never_out_of_scope"], bool):
+                issues.append(f"{cwhere}.never_out_of_scope must be a boolean")
+            if "never_not_applicable" in crit:
+                issues.append(f"{cwhere}.never_not_applicable is a retired name: use never_out_of_scope")
             tier_switch = crit.get("tier_switch")
             if tier_switch is not None:
                 if not isinstance(tier_switch, dict):
@@ -317,8 +322,8 @@ def build_clauses(source):
                 "recompute_eligible": bool(crit.get("recompute_eligible", False)),
                 "recompute_note": crit.get("recompute_note", ""),
             }
-            if crit.get("never_not_applicable"):
-                clause["never_not_applicable"] = True
+            if crit.get("never_out_of_scope"):
+                clause["never_out_of_scope"] = True
             if crit.get("tier_switch"):
                 clause["tier_switch"] = dict(crit["tier_switch"])
             if crit.get("claim_switch"):

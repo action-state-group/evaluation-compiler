@@ -5,7 +5,7 @@
 # template, and nothing a compiler should derive on its own:
 #   - the nine criteria, grouped under three checks, with their tier
 #   - the pinned judge (model id, sampling params, optional confidence threshold)
-#   - the rubric switches (within_fare_rules_recomputed, not_applicable_verdict,
+#   - the rubric switches (within_fare_rules_recomputed, out_of_scope_verdict,
 #     done_in_full_refusal_aware) and the always-on judge_batch cost fix
 #   - the report template selection and its presentation settings
 #   - the reason-code table (see "reason_code_overrides" below)
@@ -19,11 +19,11 @@
 # old ones in the same book.
 
 pack_id: airline-support-outcomes
-pack_version: "1.4.0"
+pack_version: "1.5.0"
 rubric_version: "3.3"
 
 outcome_statement: "The customer's request is resolved correctly, within airline policy"
-resolution_rule: "a conversation is resolved only when at least one criterion is met and every other required criterion is met or, where allowed, not applicable (scripts/rollup.py:all_required_met)"
+resolution_rule: "a conversation is resolved only when at least one criterion is met and every required criterion that applies to it is met; a criterion judged out_of_scope, where allowed, does not apply and never counts toward resolution (scripts/rollup.py:all_required_met)"
 source: "the outcome card's nine criteria, verbatim wording"
 decision_note: >
   Every criterion compiles with tier: judged for now (2026-09-30). recompute_eligible
@@ -31,23 +31,23 @@ decision_note: >
   criterion's recompute_note); flipping a tier later is a value change on this
   file, not a schema change. The switch defaults below were set on 2026-10-01:
   within_fare_rules stays judged (semantic first, deterministic later);
-  "does not apply" is an answer, so not_applicable_verdict is on; and a
+  "does not apply" is an answer, so out_of_scope_verdict is on; and a
   policy-correct refusal counts as done in full, so done_in_full_refusal_aware is
   on.
 
 # Rubric switches (scripts/run_daily.py's effective_tier()/effective_claim(),
-# scripts/rollup.py's allow_not_applicable). Declared here, by name, so
+# scripts/rollup.py's allow_out_of_scope). Declared here, by name, so
 # scripts/pack_compile.py can check that every clause's tier_switch/claim_switch
 # names one of these -- never a misspelled flag that silently does nothing.
 switches:
   within_fare_rules_recomputed: false
-  not_applicable_verdict: true
+  out_of_scope_verdict: true
   done_in_full_refusal_aware: true
 switches_note: >
   Rubric switches added after the first live run's audit. within_fare_rules_recomputed
-  stays off (semantic first, deterministic later); not_applicable_verdict and
-  done_in_full_refusal_aware default on. A criterion marked never_not_applicable
-  is never offered not_applicable, whatever the switch says.
+  stays off (semantic first, deterministic later); out_of_scope_verdict and
+  done_in_full_refusal_aware default on. A criterion marked never_out_of_scope
+  is never offered out_of_scope, whatever the switch says.
 
 # Always on -- a cost fix, not a rubric change: the policy text was being sent once
 # per criterion, nine times per conversation. scripts/run_daily.py's judge_batch()
@@ -144,7 +144,7 @@ checks:
       - id: done_in_full
         label: "Done in full"
         text: "Every part of the request completed; nothing left half-done."
-        never_not_applicable: true
+        never_out_of_scope: true
         claim_switch:
           flag: done_in_full_refusal_aware
           claim_when_on: "Every part of the request was either completed or correctly refused under policy; nothing left half-done."
@@ -189,7 +189,7 @@ checks:
       - id: no_invented_policy
         label: "No invented policy"
         text: "Rules stated to the customer match the airline's policy text."
-        never_not_applicable: true
+        never_out_of_scope: true
         tier: judged
         recompute_eligible: false
         recompute_note: >

@@ -138,15 +138,15 @@ class ValidateSource(unittest.TestCase):
         issues = validate_source(source)
         self.assertTrue(any("report.per_resolution_rate is not a report setting" in i for i in issues), issues)
 
-    def test_never_not_applicable_must_be_boolean_and_compiles_through(self):
+    def test_never_out_of_scope_must_be_boolean_and_compiles_through(self):
         source = minimal_source()
-        source["checks"][0]["criteria"][0]["never_not_applicable"] = "yes"
-        self.assertTrue(any("never_not_applicable must be a boolean" in i for i in validate_source(source)))
-        source["checks"][0]["criteria"][0]["never_not_applicable"] = True
+        source["checks"][0]["criteria"][0]["never_out_of_scope"] = "yes"
+        self.assertTrue(any("never_out_of_scope must be a boolean" in i for i in validate_source(source)))
+        source["checks"][0]["criteria"][0]["never_out_of_scope"] = True
         self.assertEqual(validate_source(source), [])
         clauses = build_clauses(source)
-        self.assertTrue(clauses[0]["never_not_applicable"])
-        self.assertNotIn("never_not_applicable", clauses[1])
+        self.assertTrue(clauses[0]["never_out_of_scope"])
+        self.assertNotIn("never_out_of_scope", clauses[1])
 
     def test_min_confidence_must_be_in_the_unit_interval(self):
         for bad in (0, 1.5, -0.1, "0.8", True):
@@ -159,11 +159,11 @@ class ValidateSource(unittest.TestCase):
         self.assertEqual(build_compiled_json(source, "demo/test-pack")["judge"]["min_confidence"], 0.8)
         self.assertNotIn("min_confidence", build_compiled_json(minimal_source(), "demo/test-pack")["judge"])
 
-    def test_the_real_pack_marks_done_in_full_and_no_invented_policy_never_not_applicable(self):
+    def test_the_real_pack_marks_done_in_full_and_no_invented_policy_never_out_of_scope(self):
         import yaml
         source = pack_compile._strip_strings(yaml.safe_load(
             (REPO_ROOT / "packs/airline-support-outcomes/pack-source.yaml").read_text()))
-        never = {c["id"] for c in build_clauses(source) if c.get("never_not_applicable")}
+        never = {c["id"] for c in build_clauses(source) if c.get("never_out_of_scope")}
         self.assertEqual(never, {"task_resolution.done_in_full", "grounded_communication.no_invented_policy"})
 
 
@@ -177,7 +177,7 @@ class Switches(unittest.TestCase):
 
     def test_switches_and_judge_batch_pass_through_verbatim(self):
         source = minimal_source()
-        source["switches"] = {"not_applicable_verdict": True, "done_in_full_refusal_aware": False}
+        source["switches"] = {"out_of_scope_verdict": True, "done_in_full_refusal_aware": False}
         source["judge_batch"] = True
         compiled = build_compiled_json(source, "demo/test-pack")
         self.assertEqual(compiled["switches"], source["switches"])
@@ -185,9 +185,17 @@ class Switches(unittest.TestCase):
 
     def test_switches_must_be_boolean(self):
         source = minimal_source()
-        source["switches"] = {"not_applicable_verdict": "yes"}
+        source["switches"] = {"out_of_scope_verdict": "yes"}
         issues = validate_source(source)
-        self.assertTrue(any("switches.not_applicable_verdict must be a boolean" in i for i in issues), issues)
+        self.assertTrue(any("switches.out_of_scope_verdict must be a boolean" in i for i in issues), issues)
+
+    def test_the_retired_not_applicable_names_are_refused_not_ignored(self):
+        source = minimal_source()
+        source["switches"] = {"not_applicable_verdict": True}
+        source["checks"][0]["criteria"][0]["never_not_applicable"] = True
+        issues = validate_source(source)
+        self.assertTrue(any("switches.not_applicable_verdict is a retired name" in i for i in issues), issues)
+        self.assertTrue(any("never_not_applicable is a retired name" in i for i in issues), issues)
 
     def test_judge_batch_must_be_boolean(self):
         source = minimal_source()
@@ -328,10 +336,10 @@ class CompilePack(unittest.TestCase):
         # The judge pin carries pack_source_digest (scripts/judge_pin.py), so a
         # switch flip or a claim_when_on edit moves the pin.
         source = minimal_source()
-        source["switches"] = {"not_applicable_verdict": False, "refusal_aware": False}
+        source["switches"] = {"out_of_scope_verdict": False, "refusal_aware": False}
         source["checks"][0]["criteria"][0]["claim_switch"] = {"flag": "refusal_aware", "claim_when_on": "x or y."}
         base = build_compiled_json(source, "demo/test-pack")["pack_source_digest"]
-        for mutate in (lambda s: s["switches"].update(not_applicable_verdict=True),
+        for mutate in (lambda s: s["switches"].update(out_of_scope_verdict=True),
                        lambda s: s["switches"].update(refusal_aware=True),
                        lambda s: s["checks"][0]["criteria"][0]["claim_switch"].update(claim_when_on="x or z.")):
             changed = copy.deepcopy(source)

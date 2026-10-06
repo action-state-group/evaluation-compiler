@@ -186,40 +186,40 @@ class DateAwareState(unittest.TestCase):
 
 class NotApplicableOption(unittest.TestCase):
     def test_build_eval_without_the_switch_offers_only_three_options(self):
-        ev = jev_judge.build_eval(SAMPLE_REQUEST["clause"], allow_not_applicable=False)
+        ev = jev_judge.build_eval(SAMPLE_REQUEST["clause"], allow_out_of_scope=False)
         self.assertEqual(set(ev.options), set(jev_judge.VERDICTS))
 
     def test_build_eval_with_the_switch_offers_a_fourth_option(self):
-        ev = jev_judge.build_eval(SAMPLE_REQUEST["clause"], allow_not_applicable=True)
-        self.assertEqual(set(ev.options), set(jev_judge.VERDICTS_WITH_NA))
+        ev = jev_judge.build_eval(SAMPLE_REQUEST["clause"], allow_out_of_scope=True)
+        self.assertEqual(set(ev.options), set(jev_judge.VERDICTS_WITH_OOS))
 
-    def test_not_applicable_is_reachable_through_the_mock_backend_when_allowed(self):
-        request = dict(SAMPLE_REQUEST, allow_not_applicable=True)
-        answer = jev_judge.judge(request, backend=jevals.MockBackend(fn=lambda qid, q, state: "not_applicable"))
-        self.assertEqual(answer["verdict"], "not_applicable")
+    def test_out_of_scope_is_reachable_through_the_mock_backend_when_allowed(self):
+        request = dict(SAMPLE_REQUEST, allow_out_of_scope=True)
+        answer = jev_judge.judge(request, backend=jevals.MockBackend(fn=lambda qid, q, state: "out_of_scope"))
+        self.assertEqual(answer["verdict"], "out_of_scope")
 
-    def test_not_applicable_is_structurally_unreachable_when_not_allowed(self):
-        # the eval's own options never include not_applicable unless allowed, so even
-        # a backend that "wants" to answer not_applicable can only pick among the three
+    def test_out_of_scope_is_structurally_unreachable_when_not_allowed(self):
+        # the eval's own options never include out_of_scope unless allowed, so even
+        # a backend that "wants" to answer out_of_scope can only pick among the three
         # real options (MockBackend falls back to a uniform draw over them).
-        answer = jev_judge.judge(SAMPLE_REQUEST, backend=jevals.MockBackend(fn=lambda qid, q, state: "not_applicable"))
+        answer = jev_judge.judge(SAMPLE_REQUEST, backend=jevals.MockBackend(fn=lambda qid, q, state: "out_of_scope"))
         self.assertIn(answer["verdict"], jev_judge.VERDICTS)
 
-    def test_the_real_mock_fn_can_actually_land_on_not_applicable_when_allowed(self):
-        # The test above (test_not_applicable_is_reachable_through_the_mock_backend_
+    def test_the_real_mock_fn_can_actually_land_on_out_of_scope_when_allowed(self):
+        # The test above (test_out_of_scope_is_reachable_through_the_mock_backend_
         # when_allowed) proves the plumbing with a hand-rolled fn that always answers
-        # "not_applicable" -- it never exercises jev_judge._mock_fn, the function
+        # "out_of_scope" -- it never exercises jev_judge._mock_fn, the function
         # tests/fresh_env_outcomes.sh and every real mock run actually uses. _mock_fn used
         # to pick `VERDICTS[hash % 3]` unconditionally -- the real production path --
         # which structurally could never land on a 4th option no matter how many
         # clauses were judged with the switch on; this is the bug that run hit (50
-        # cases x 8 not_applicable-eligible clauses, zero not_applicable verdicts,
+        # cases x 8 out_of_scope-eligible clauses, zero out_of_scope verdicts,
         # every single time, not by chance). Fixed: _mock_fn now hashes over
         # q.options, whatever size that eval actually offers. Proven here across the
         # real compiled contract's clauses, both ends of the switch: at least one
-        # clause lands on not_applicable when allowed, and none ever do when not.
+        # clause lands on out_of_scope when allowed, and none ever do when not.
         # 40 synthetic clauses (distinct wording -> distinct hash basis each): with
-        # a correct 4-way hash, the chance of never landing on not_applicable is
+        # a correct 4-way hash, the chance of never landing on out_of_scope is
         # (3/4)^40 ~ 1e-5 -- this is a structural reachability proof, not a hope
         # the real nine happen to hit it (they didn't, in the live mock run this
         # bug was found in: see this test class's own docstring above).
@@ -227,17 +227,17 @@ class NotApplicableOption(unittest.TestCase):
                     "claim": f"Synthetic criterion number {i} for mock-distribution coverage."}
                    for i in range(40)]
         backend = jevals.MockBackend(fn=jev_judge._mock_fn)
-        with_na = {
-            clause["id"]: jev_judge.judge(dict(SAMPLE_REQUEST, clause=clause, allow_not_applicable=True),
+        with_oos = {
+            clause["id"]: jev_judge.judge(dict(SAMPLE_REQUEST, clause=clause, allow_out_of_scope=True),
                                            backend=backend)["verdict"]
             for clause in clauses
         }
-        self.assertIn("not_applicable", with_na.values())
-        without_na = {
+        self.assertIn("out_of_scope", with_oos.values())
+        without_oos = {
             clause["id"]: jev_judge.judge(dict(SAMPLE_REQUEST, clause=clause), backend=backend)["verdict"]
             for clause in clauses
         }
-        self.assertTrue(all(v in jev_judge.VERDICTS for v in without_na.values()))
+        self.assertTrue(all(v in jev_judge.VERDICTS for v in without_oos.values()))
 
 
 class BatchMode(unittest.TestCase):
@@ -312,7 +312,7 @@ class PinnedInstructions(unittest.TestCase):
     def test_build_eval_sends_exactly_the_pinned_template(self):
         clause = SAMPLE_REQUEST["clause"]
         expected = jev_judge.INSTRUCTION_TEMPLATE.format(clause_id=clause["id"], claim=clause["claim"],
-                                                         na_instructions="")
+                                                         out_of_scope_instructions="")
         self.assertEqual(jev_judge.build_eval(clause).instructions, expected)
 
 
@@ -358,11 +358,11 @@ class ConfidenceThreshold(unittest.TestCase):
 
 
 class NeverNotApplicable(unittest.TestCase):
-    def test_a_never_not_applicable_clause_is_not_offered_not_applicable(self):
-        clause = dict(SAMPLE_REQUEST["clause"], never_not_applicable=True)
-        ev = jev_judge.build_eval(clause, allow_not_applicable=True)
-        self.assertNotIn("not_applicable", ev.options)
-        self.assertNotIn("not_applicable --", ev.instructions)
+    def test_a_never_out_of_scope_clause_is_not_offered_out_of_scope(self):
+        clause = dict(SAMPLE_REQUEST["clause"], never_out_of_scope=True)
+        ev = jev_judge.build_eval(clause, allow_out_of_scope=True)
+        self.assertNotIn("out_of_scope", ev.options)
+        self.assertNotIn("out_of_scope --", ev.instructions)
 
 
 class MalformedRequests(unittest.TestCase):

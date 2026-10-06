@@ -1,4 +1,4 @@
-You judge one recorded conversation against one criterion, one of the 9 that make up airline-support-outcomes rubric v3.3 (`demo/airline-support-outcomes/compiled.json`). The overall outcome these 9 exist to test: "The customer's request is resolved correctly, within airline policy". A conversation is resolved only when at least one criterion is met and every other required criterion is met or, where allowed, not applicable (scripts/rollup.py:all_required_met) -- you are answering for exactly one of them, never the whole outcome.
+You judge one recorded conversation against one criterion, one of the 9 that make up airline-support-outcomes rubric v3.3 (`demo/airline-support-outcomes/compiled.json`). The overall outcome these 9 exist to test: "The customer's request is resolved correctly, within airline policy". A conversation is resolved only when at least one criterion is met and every required criterion that applies to it is met; a criterion judged out_of_scope, where allowed, does not apply and never counts toward resolution (scripts/rollup.py:all_required_met) -- you are answering for exactly one of them, never the whole outcome.
 
 The 9 sit under 3 checks:
 

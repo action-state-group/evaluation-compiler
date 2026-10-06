@@ -16,21 +16,24 @@ Known, flagged gaps against the schema:
     contract without one (demo/tau2-outcomes/compiled.json) falls back to a "@1"
     placeholder suffix on the contract id.
 
-`not_applicable`: scripts/rollup.py accepts `not_applicable` as a criterion verdict
-when the contract's not_applicable_verdict switch is on, but it is NOT one of
+`out_of_scope`: scripts/rollup.py accepts `out_of_scope` as a criterion verdict
+when the contract's out_of_scope_verdict switch is on, but it is NOT one of
 Evidence Result v0's three `Verdict` values (`met`/`not_met`/`not_evaluable`,
-closed enum). Per the Result v0 spec, `not_applicable` is excluded from the
-evaluated population entirely and only appears as
-`aggregate.coverage.excluded_not_applicable`, never as a claim. A not_applicable
-criterion therefore gets NO claim here, and is never folded into `met`.
+closed enum). An out_of_scope criterion is a requirement that does not apply to
+this case, which is what the Result v0 spec's NOT_APPLICABLE population exclusion
+counts: excluded from the evaluated population entirely and only appearing as
+`aggregate.coverage.excluded_not_applicable`, never as a claim. An out_of_scope
+criterion therefore gets NO claim here: it is never folded into `met`, and never
+into `not_evaluable` either -- that verdict means the requirement applies and
+could not be determined, which is a different claim.
 
 The headline re-derives from the document alone. In a day document every claim's
 id is `<case_id>::<criterion_id>`; a case is resolved exactly when every one of its
 claims is met (headline_from_result()). That equals scripts/rollup.py's
 all_required_met for every case the document carries, because a case reaches a
-document only when it has at least one evaluated claim (an all-not_applicable
+document only when it has at least one evaluated claim (an all-out_of_scope
 case resolves nothing and is refused here, reported by the caller instead) and a
-never_not_applicable criterion is never not_applicable.
+never_out_of_scope criterion is never out_of_scope.
 """
 import pathlib
 import sys
@@ -41,7 +44,7 @@ from rollup import RollupError, all_required_met  # noqa: E402
 CASE_SEPARATOR = "::"
 
 _VERDICTS = ("met", "not_met", "not_evaluable")
-_VERDICTS_WITH_NA = _VERDICTS + ("not_applicable",)
+_VERDICTS_WITH_OOS = _VERDICTS + ("out_of_scope",)
 
 
 def _digest_ref(hex_digest):
@@ -76,7 +79,7 @@ def claim_for(criterion_id, verdict, contract_ref, tier, report_digest=None, cla
     existing caller/test.
 
     `verdict` is strictly `met`/`not_met`/`not_evaluable` -- Evidence Result v0's
-    closed Verdict enum, which this function never widens: a `not_applicable`
+    closed Verdict enum, which this function never widens: a `out_of_scope`
     criterion is never passed here at all (see build_result_v0's own filtering,
     and this module's docstring on why)."""
     if verdict not in _VERDICTS:
@@ -99,7 +102,7 @@ def claim_for(criterion_id, verdict, contract_ref, tier, report_digest=None, cla
 
 
 def build_result_v0(case_id, criterion_verdicts, report_digests, generated_at, all_criteria, contract_ref, tiers,
-                     allow_not_applicable=False, never_not_applicable=frozenset()):
+                     allow_out_of_scope=False, never_out_of_scope=frozenset()):
     """criterion_verdicts: dict[criterion_id -> verdict]. report_digests: dict
     [criterion_id -> sealed evaluation-report capsule digest], may omit entries.
     `all_criteria`: tuple of every criterion id the compiled contract defines
@@ -113,27 +116,27 @@ def build_result_v0(case_id, criterion_verdicts, report_digests, generated_at, a
     missing, nothing unrecognized -- so a malformed call fails closed here too,
     not just in the rollup.
 
-    allow_not_applicable: the not_applicable_verdict switch (off by default, so the
-    document's shape is unchanged unless a caller opts in). When on, a
-    not_applicable criterion still counts as passing in `resolved`
-    (all_required_met's own rule) but gets NO claim at all in `claims[]` -- only
+    allow_out_of_scope: the out_of_scope_verdict switch (off by default, so the
+    document's shape is unchanged unless a caller opts in). When on, an
+    out_of_scope criterion is set aside in `resolved` (all_required_met's own
+    rule: it never counts toward satisfaction) and gets NO claim at all in `claims[]` -- only
     counted in `aggregate.coverage.excluded_not_applicable` -- per Evidence Result
     v0's own schema (see this module's docstring): `verdict`/`buckets` have no
-    not_applicable value to hold it in.
+    out_of_scope value to hold it in.
 
     Returns (document, resolved) -- resolved is the same all_required_met() boolean
     that produced the buckets, so a caller never has to re-derive it from the
     document to know whether this conversation resolved.
 
-    A case on which every criterion is not_applicable has nothing to claim (the
+    A case on which every criterion is out_of_scope has nothing to claim (the
     schema requires at least one claim) and resolves nothing: refused with
     RollupError, for the caller to report.
     """
-    resolved = all_required_met(criterion_verdicts, all_criteria, allow_not_applicable, never_not_applicable)
+    resolved = all_required_met(criterion_verdicts, all_criteria, allow_out_of_scope, never_out_of_scope)
     report_digests = report_digests or {}
-    evaluated = [cid for cid in all_criteria if criterion_verdicts[cid] != "not_applicable"]
+    evaluated = [cid for cid in all_criteria if criterion_verdicts[cid] != "out_of_scope"]
     if not evaluated:
-        raise RollupError(f"case {case_id!r}: every criterion is not_applicable; nothing was evaluated")
+        raise RollupError(f"case {case_id!r}: every criterion is out_of_scope; nothing was evaluated")
     excluded_not_applicable = len(all_criteria) - len(evaluated)
     claims = [
         claim_for(cid, criterion_verdicts[cid], contract_ref, tiers[cid], report_digests.get(cid))
@@ -163,7 +166,7 @@ def build_result_v0(case_id, criterion_verdicts, report_digests, generated_at, a
 
 
 def build_result_v0_for_day(period, case_rollups, generated_at, all_criteria, contract_ref,
-                             allow_not_applicable=False, never_not_applicable=frozenset()):
+                             allow_out_of_scope=False, never_out_of_scope=frozenset()):
     """One Result v0 document spanning every complete case judged for one day/
     period: an outcome report renders from a single Result root, so a
     conversation's criteria live beside every other conversation's in one document
@@ -178,13 +181,13 @@ def build_result_v0_for_day(period, case_rollups, generated_at, all_criteria, co
     can hold every case's claims without collision, and so headline_from_result()
     can regroup them; `requirement_ref` stays the bare criterion_id.
 
-    `allow_not_applicable`: same switch build_result_v0() takes -- threaded through
-    only so this function can tell a legitimate not_applicable input verdict apart
+    `allow_out_of_scope`: same switch build_result_v0() takes -- threaded through
+    only so this function can tell a legitimate out_of_scope input verdict apart
     from a stray one (defense in depth; every real caller already filtered
-    incomplete/malformed cases out before this point). A not_applicable criterion
+    incomplete/malformed cases out before this point). An out_of_scope criterion
     gets NO claim in `claims[]` either, same rule and same schema reason as
     build_result_v0 -- see this module's docstring. Every case must pass
-    all_required_met (never_not_applicable included) and carry at least one
+    all_required_met (never_out_of_scope included) and carry at least one
     evaluated criterion, or the whole call is refused: the caller filters cases
     first and reports the ones it filtered.
     """
@@ -195,17 +198,17 @@ def build_result_v0_for_day(period, case_rollups, generated_at, all_criteria, co
         if missing:
             raise RollupError(f"case {case_id!r} missing criteria: {missing!r}")
         bad = [c for c in all_criteria
-               if criterion_verdicts[c] not in (_VERDICTS_WITH_NA if allow_not_applicable else _VERDICTS)]
+               if criterion_verdicts[c] not in (_VERDICTS_WITH_OOS if allow_out_of_scope else _VERDICTS)]
         if bad:
             raise RollupError(f"case {case_id!r} carries unrecognized verdicts for {bad!r}")
         if CASE_SEPARATOR in case_id:
             raise RollupError(f"case id {case_id!r} contains {CASE_SEPARATOR!r}; claim ids could not be regrouped")
-        all_required_met(criterion_verdicts, all_criteria, allow_not_applicable, never_not_applicable)
-        if all(criterion_verdicts[c] == "not_applicable" for c in all_criteria):
-            raise RollupError(f"case {case_id!r}: every criterion is not_applicable; nothing was evaluated")
+        all_required_met(criterion_verdicts, all_criteria, allow_out_of_scope, never_out_of_scope)
+        if all(criterion_verdicts[c] == "out_of_scope" for c in all_criteria):
+            raise RollupError(f"case {case_id!r}: every criterion is out_of_scope; nothing was evaluated")
         report_digests = report_digests or {}
         for cid in all_criteria:
-            if criterion_verdicts[cid] == "not_applicable":
+            if criterion_verdicts[cid] == "out_of_scope":
                 excluded_not_applicable += 1
                 continue
             claims.append(claim_for(

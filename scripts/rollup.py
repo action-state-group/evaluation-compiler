@@ -17,11 +17,19 @@ a clause's tier/recompute_eligible fields, only the verdicts a day's judging
 produced.
 
 A conversation resolves only when something was actually checked: at least one
-criterion is met, and every other is met or (when allowed) not_applicable. A
-conversation on which every criterion came back not_applicable resolves nothing.
-A criterion a pack marks `never_not_applicable` (e.g. done_in_full,
+criterion is met, and every criterion that applies to it is met. An out_of_scope
+criterion -- one that does not apply to this conversation -- is neither met nor
+not_met: it is set aside, never counted toward satisfaction, so it can never be
+the "at least one met", and a conversation on which every criterion came back
+out_of_scope resolves nothing. out_of_scope is not not_evaluable either:
+not_evaluable means the criterion applies and could not be determined, and it
+holds a conversation back from resolving; the two are never folded into each
+other here. `not_applicable` is not a verdict in this vocabulary at all (Evidence
+Result v0 uses that word only for its own population exclusion,
+aggregate.coverage.excluded_not_applicable) and is refused by name.
+A criterion a pack marks `never_out_of_scope` (e.g. done_in_full,
 no_invented_policy -- something always happened that they test) may never be
-not_applicable; such a verdict is refused, not counted.
+out_of_scope; such a verdict is refused, not counted.
 """
 
 
@@ -45,44 +53,59 @@ def all_criteria_from_clauses(clauses):
     return tuple(clause["id"] for clause in clauses)
 
 
-def never_not_applicable_from_clauses(clauses):
-    """The clause ids a pack marks never_not_applicable. Pure, derived from clauses[]."""
-    return frozenset(clause["id"] for clause in clauses if clause.get("never_not_applicable"))
+def never_out_of_scope_from_clauses(clauses):
+    """The clause ids a pack marks never_out_of_scope. Pure, derived from clauses[]."""
+    return frozenset(clause["id"] for clause in clauses if clause.get("never_out_of_scope"))
 
 
 VERDICTS = ("met", "not_met", "not_evaluable")
 
-# The not_applicable_verdict switch (a compiled contract's "switches"): off by
-# default, so every function below defaults allow_not_applicable=False unless a
-# caller opts in. Within a group that also has a met, not_applicable counts as
-# passing; a group whose verdicts are ALL not_applicable combines to
-# not_applicable, never to met -- nothing in it was checked. See
+# The out_of_scope_verdict switch (a compiled contract's "switches"): off by
+# default, so every function below defaults allow_out_of_scope=False unless a
+# caller opts in. An out_of_scope verdict is set aside before combining: it is
+# never counted as met, and a group whose verdicts are ALL out_of_scope combines
+# to out_of_scope, never to met -- nothing in it was checked. See
 # scripts/result_v0.py's "excluded_not_applicable".
-NOT_APPLICABLE = "not_applicable"
-VERDICTS_WITH_NA = VERDICTS + (NOT_APPLICABLE,)
+OUT_OF_SCOPE = "out_of_scope"
+VERDICTS_WITH_OOS = VERDICTS + (OUT_OF_SCOPE,)
+
+# The retired spelling, refused by name rather than as "not a verdict": it has
+# meant three different things in this stack, and a reader that sees it cannot
+# tell which one was meant.
+RETIRED_NOT_APPLICABLE = "not_applicable"
 
 
-def combine(verdicts, allow_not_applicable=False):
-    """AND semantics over a set of verdicts: not_met beats not_evaluable beats
-    met; not_applicable (when allowed) passes beside a met, and a set that is
-    all not_applicable is not_applicable -- never met."""
-    verdicts = list(verdicts)
-    if not verdicts:
-        raise RollupError("combine() needs at least one verdict")
-    valid = VERDICTS_WITH_NA if allow_not_applicable else VERDICTS
+def _refuse_unknown(verdicts, valid):
+    """RollupError naming every verdict outside `valid`, with not_applicable
+    called out so its writer learns which word replaces it."""
+    if RETIRED_NOT_APPLICABLE in verdicts:
+        raise RollupError("not_applicable is not an adjudicator verdict: use out_of_scope (the criterion "
+                          "does not apply here) or not_evaluable (it applies and could not be determined)")
     bad = [v for v in verdicts if v not in valid]
     if bad:
         raise RollupError(f"not a verdict: {bad!r}")
-    if any(v == "not_met" for v in verdicts):
+
+
+def combine(verdicts, allow_out_of_scope=False):
+    """AND semantics over the verdicts that apply: not_met beats not_evaluable
+    beats met. out_of_scope (when allowed) is set aside first -- it never counts
+    as met and never as not_met -- so a set that is all out_of_scope is
+    out_of_scope, never met."""
+    verdicts = list(verdicts)
+    if not verdicts:
+        raise RollupError("combine() needs at least one verdict")
+    _refuse_unknown(verdicts, VERDICTS_WITH_OOS if allow_out_of_scope else VERDICTS)
+    in_scope = [v for v in verdicts if v != OUT_OF_SCOPE]
+    if not in_scope:
+        return OUT_OF_SCOPE
+    if "not_met" in in_scope:
         return "not_met"
-    if any(v == "not_evaluable" for v in verdicts):
+    if "not_evaluable" in in_scope:
         return "not_evaluable"
-    if all(v == NOT_APPLICABLE for v in verdicts):
-        return NOT_APPLICABLE
     return "met"
 
 
-def check_verdicts(criterion_verdicts, checks, allow_not_applicable=False):
+def check_verdicts(criterion_verdicts, checks, allow_out_of_scope=False):
     """One verdict per check, each the AND of its own criteria. Refuses a check
     with a missing criterion rather than combining over what happens to be present.
 
@@ -93,19 +116,21 @@ def check_verdicts(criterion_verdicts, checks, allow_not_applicable=False):
         missing = [c for c in criteria if c not in criterion_verdicts]
         if missing:
             raise RollupError(f"check {check_id!r} is missing criteria {missing!r}")
-        out[check_id] = combine((criterion_verdicts[c] for c in criteria), allow_not_applicable)
+        out[check_id] = combine((criterion_verdicts[c] for c in criteria), allow_out_of_scope)
     return out
 
 
-def all_required_met(criterion_verdicts, all_criteria, allow_not_applicable=False,
-                     never_not_applicable=frozenset()):
+def all_required_met(criterion_verdicts, all_criteria, allow_out_of_scope=False,
+                     never_out_of_scope=frozenset()):
     """The all-required rollup: a conversation is resolved only when at least one
-    criterion is met and every other required criterion is met (or, when the
-    not_applicable_verdict switch is on, not_applicable). All not_applicable is
-    NOT resolved. Refuses unless criterion_verdicts carries exactly the known
+    criterion is met and every required criterion that applies to it is met.
+    When the out_of_scope_verdict switch is on, an out_of_scope criterion does
+    not apply to this conversation: it is set aside, never counted toward
+    satisfaction -- it cannot be the one met, so all out_of_scope is NOT
+    resolved. Refuses unless criterion_verdicts carries exactly the known
     criteria -- missing ones are never treated as passing, and unrecognized ones
-    are never silently ignored -- and refuses a not_applicable verdict on any
-    criterion in `never_not_applicable`.
+    are never silently ignored -- and refuses an out_of_scope verdict on any
+    criterion in `never_out_of_scope`.
 
     `all_criteria`: tuple of every criterion id the contract defines, e.g. from
     all_criteria_from_clauses() over the compiled contract this day was judged
@@ -118,7 +143,7 @@ def all_required_met(criterion_verdicts, all_criteria, allow_not_applicable=Fals
         raise RollupError(f"missing criteria: {missing!r}")
     if extra:
         raise RollupError(f"unrecognized criteria: {extra!r}")
-    forbidden = sorted(c for c in never_not_applicable if criterion_verdicts.get(c) == NOT_APPLICABLE)
+    forbidden = sorted(c for c in never_out_of_scope if criterion_verdicts.get(c) == OUT_OF_SCOPE)
     if forbidden:
-        raise RollupError(f"criteria that may never be not_applicable came back not_applicable: {forbidden!r}")
-    return combine(criterion_verdicts.values(), allow_not_applicable) == "met"
+        raise RollupError(f"criteria that may never be out_of_scope came back out_of_scope: {forbidden!r}")
+    return combine(criterion_verdicts.values(), allow_out_of_scope) == "met"

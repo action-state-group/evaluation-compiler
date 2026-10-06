@@ -8,8 +8,11 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
 
-from rollup import (RollupError, all_criteria_from_clauses, all_required_met,  # noqa: E402
-                    checks_from_clauses, check_verdicts, combine, never_not_applicable_from_clauses)
+import itertools  # noqa: E402
+
+from rollup import (OUT_OF_SCOPE, VERDICTS_WITH_OOS, RollupError, all_criteria_from_clauses,  # noqa: E402
+                    all_required_met, checks_from_clauses, check_verdicts, combine,
+                    never_out_of_scope_from_clauses)
 
 # A nine-criteria, three-check fixture (the airline pack's own shape) -- plain data, not
 # imported from any compiled contract, so these tests stay pure and don't depend on
@@ -132,57 +135,103 @@ class AllRequiredMet(unittest.TestCase):
                                            SMALL_ALL_CRITERIA))
 
 
-class NotApplicableSwitch(unittest.TestCase):
-    """The not_applicable_verdict switch: off by default (every call above never
-    passes allow_not_applicable, so "not_applicable" stays an unrecognized verdict
-    there), on here -- passes beside a met, never resolves on its own, and never
-    gets silently relabelled "met" in the caller's own criterion_verdicts."""
+class OutOfScopeSwitch(unittest.TestCase):
+    """The out_of_scope_verdict switch: off by default (every call above never
+    passes allow_out_of_scope, so "out_of_scope" stays an unrecognized verdict
+    there), on here -- set aside beside a met (never counted as met), never
+    resolves on its own, and never gets silently relabelled "met" in the
+    caller's own criterion_verdicts."""
 
-    def test_not_applicable_is_refused_when_the_switch_is_off(self):
+    def test_out_of_scope_is_refused_when_the_switch_is_off(self):
         with self.assertRaisesRegex(RollupError, "not a verdict"):
-            combine(["met", "not_applicable"])
+            combine(["met", "out_of_scope"])
 
-    def test_not_applicable_counts_as_passing_when_allowed(self):
-        self.assertEqual(combine(["met", "not_applicable"], allow_not_applicable=True), "met")
+    def test_out_of_scope_is_set_aside_beside_a_met_when_allowed(self):
+        # "met" here is the met criterion's own verdict; the out_of_scope one adds nothing to it
+        self.assertEqual(combine(["met", "out_of_scope"], allow_out_of_scope=True), "met")
 
-    def test_all_not_applicable_is_never_met(self):
-        # Nothing was checked: the combination is not_applicable, and a
-        # conversation on which every criterion is not_applicable is NOT resolved.
-        self.assertEqual(combine(["not_applicable", "not_applicable"], allow_not_applicable=True), "not_applicable")
-        all_na = {c: "not_applicable" for c in ALL_CRITERIA}
-        self.assertFalse(all_required_met(all_na, ALL_CRITERIA, allow_not_applicable=True))
+    def test_all_out_of_scope_is_never_met(self):
+        # Nothing was checked: the combination is out_of_scope, and a
+        # conversation on which every criterion is out_of_scope is NOT resolved.
+        self.assertEqual(combine(["out_of_scope", "out_of_scope"], allow_out_of_scope=True), "out_of_scope")
+        all_oos = {c: "out_of_scope" for c in ALL_CRITERIA}
+        self.assertFalse(all_required_met(all_oos, ALL_CRITERIA, allow_out_of_scope=True))
 
-    def test_a_never_not_applicable_criterion_judged_not_applicable_is_refused(self):
-        never = never_not_applicable_from_clauses(
-            [dict(c, never_not_applicable=True) if c["id"] in ("task_resolution.done_in_full",
+    def test_a_never_out_of_scope_criterion_judged_out_of_scope_is_refused(self):
+        never = never_out_of_scope_from_clauses(
+            [dict(c, never_out_of_scope=True) if c["id"] in ("task_resolution.done_in_full",
                                                                  "grounded_communication.no_invented_policy")
              else c for c in CLAUSES])
         self.assertEqual(never, {"task_resolution.done_in_full", "grounded_communication.no_invented_policy"})
-        verdicts = dict(ALL_MET, **{"task_resolution.done_in_full": "not_applicable"})
-        with self.assertRaisesRegex(RollupError, "may never be not_applicable"):
-            all_required_met(verdicts, ALL_CRITERIA, allow_not_applicable=True, never_not_applicable=never)
+        verdicts = dict(ALL_MET, **{"task_resolution.done_in_full": "out_of_scope"})
+        with self.assertRaisesRegex(RollupError, "may never be out_of_scope"):
+            all_required_met(verdicts, ALL_CRITERIA, allow_out_of_scope=True, never_out_of_scope=never)
         # the same verdicts resolve when no criterion is marked
-        self.assertTrue(all_required_met(verdicts, ALL_CRITERIA, allow_not_applicable=True))
+        self.assertTrue(all_required_met(verdicts, ALL_CRITERIA, allow_out_of_scope=True))
 
-    def test_not_met_still_beats_not_applicable(self):
-        self.assertEqual(combine(["not_met", "not_applicable"], allow_not_applicable=True), "not_met")
+    def test_not_met_still_beats_out_of_scope(self):
+        self.assertEqual(combine(["not_met", "out_of_scope"], allow_out_of_scope=True), "not_met")
 
-    def test_not_evaluable_still_beats_not_applicable(self):
-        self.assertEqual(combine(["not_evaluable", "not_applicable"], allow_not_applicable=True), "not_evaluable")
+    def test_not_evaluable_still_beats_out_of_scope(self):
+        self.assertEqual(combine(["not_evaluable", "out_of_scope"], allow_out_of_scope=True), "not_evaluable")
 
-    def test_all_required_met_passes_with_not_applicable_criteria_when_allowed(self):
-        verdicts = dict(ALL_MET, **{"task_resolution.right_change": "not_applicable",
-                                     "grounded_communication.refunds_match_payment_records": "not_applicable"})
-        self.assertTrue(all_required_met(verdicts, ALL_CRITERIA, allow_not_applicable=True))
+    def test_all_required_met_resolves_over_the_criteria_that_apply_when_allowed(self):
+        verdicts = dict(ALL_MET, **{"task_resolution.right_change": "out_of_scope",
+                                     "grounded_communication.refunds_match_payment_records": "out_of_scope"})
+        self.assertTrue(all_required_met(verdicts, ALL_CRITERIA, allow_out_of_scope=True))
         # and still refused as an unrecognized verdict when the switch is off
         with self.assertRaisesRegex(RollupError, "not a verdict"):
             all_required_met(verdicts, ALL_CRITERIA)
 
-    def test_check_verdicts_reports_not_applicable_criteria_without_folding_to_met(self):
-        verdicts = dict(ALL_MET, **{"task_resolution.right_change": "not_applicable"})
-        checks = check_verdicts(verdicts, CHECKS, allow_not_applicable=True)
-        self.assertEqual(checks["task_resolution"], "met")  # the check as a whole still passes
-        self.assertEqual(verdicts["task_resolution.right_change"], "not_applicable")  # never rewritten
+    def test_check_verdicts_reports_out_of_scope_criteria_without_folding_to_met(self):
+        verdicts = dict(ALL_MET, **{"task_resolution.right_change": "out_of_scope"})
+        checks = check_verdicts(verdicts, CHECKS, allow_out_of_scope=True)
+        self.assertEqual(checks["task_resolution"], "met")  # its two criteria that apply are met
+        self.assertEqual(verdicts["task_resolution.right_change"], "out_of_scope")  # never rewritten
+
+
+class OutOfScopeNeverSatisfies(unittest.TestCase):
+    """out_of_scope means the criterion does not apply to this case: neither met
+    nor not_met. It never counts toward satisfying anything -- not a criterion, not
+    a check, not all_required_met -- and it is never folded into not_evaluable
+    (which means the criterion applies and could not be determined)."""
+
+    SMALL = ("a", "b", "c")
+
+    def test_out_of_scope_never_counts_toward_satisfaction(self):
+        # Every assignment of the four verdicts to three criteria: the case resolves
+        # exactly when at least one criterion is actually met and every criterion
+        # that is not out_of_scope is met. An out_of_scope verdict is never counted
+        # as the met, so swapping any met for out_of_scope can only lose a resolve.
+        for combo in itertools.product(VERDICTS_WITH_OOS, repeat=len(self.SMALL)):
+            verdicts = dict(zip(self.SMALL, combo))
+            in_scope = [v for v in combo if v != OUT_OF_SCOPE]
+            expected = bool(in_scope) and all(v == "met" for v in in_scope)
+            with self.subTest(verdicts=verdicts):
+                self.assertEqual(all_required_met(verdicts, self.SMALL, allow_out_of_scope=True), expected)
+                if combine(combo, allow_out_of_scope=True) == "met":
+                    self.assertIn("met", combo)
+
+    def test_a_check_with_no_criterion_that_applies_is_never_met(self):
+        verdicts = dict(ALL_MET, **{c: "out_of_scope" for c in CHECKS["task_resolution"]})
+        checks = check_verdicts(verdicts, CHECKS, allow_out_of_scope=True)
+        self.assertEqual(checks["task_resolution"], "out_of_scope")
+
+    def test_out_of_scope_is_never_aliased_to_not_evaluable(self):
+        self.assertNotEqual(OUT_OF_SCOPE, "not_evaluable")
+        for combo in itertools.product(("met", OUT_OF_SCOPE), repeat=3):
+            with self.subTest(combo=combo):
+                self.assertNotEqual(combine(combo, allow_out_of_scope=True), "not_evaluable")
+        self.assertEqual(combine([OUT_OF_SCOPE], allow_out_of_scope=True), OUT_OF_SCOPE)
+
+    def test_not_applicable_is_refused_as_a_verdict_by_name(self):
+        for allow in (False, True):
+            with self.subTest(allow_out_of_scope=allow):
+                with self.assertRaisesRegex(RollupError, "not_applicable is not an adjudicator verdict"):
+                    combine(["met", "not_applicable"], allow_out_of_scope=allow)
+                with self.assertRaisesRegex(RollupError, "not_applicable is not an adjudicator verdict"):
+                    all_required_met(dict(ALL_MET, **{"task_resolution.right_change": "not_applicable"}),
+                                     ALL_CRITERIA, allow_out_of_scope=allow)
 
 
 if __name__ == "__main__":

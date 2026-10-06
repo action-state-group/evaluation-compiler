@@ -10,7 +10,7 @@
   "switches_note": "Rubric switches added after the first live run's audit. All three default off in this hand-authored contract; demo/airline-support-outcomes (compiled from packs/airline-support-outcomes/pack-source.yaml) carries the chosen defaults.",
   "switches": {
     "within_fare_rules_recomputed": false,
-    "not_applicable_verdict": false,
+    "out_of_scope_verdict": false,
     "done_in_full_refusal_aware": false
   },
   "judge_batch": true,

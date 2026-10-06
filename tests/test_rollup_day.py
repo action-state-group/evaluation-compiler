@@ -292,10 +292,10 @@ class DayDocument(unittest.TestCase):
         not_met = dict(ALL_MET_WITH_DIGESTS)
         not_met["task_resolution.right_change"] = ("not_met", "f" * 64)
         some_na = dict(ALL_MET_WITH_DIGESTS)
-        some_na["task_resolution.right_change"] = ("not_applicable", "e" * 64)
-        all_na = {c: ("not_applicable", d) for c, (_, d) in ALL_MET_WITH_DIGESTS.items()}
+        some_na["task_resolution.right_change"] = ("out_of_scope", "e" * 64)
+        all_na = {c: ("out_of_scope", d) for c, (_, d) in ALL_MET_WITH_DIGESTS.items()}
         never_na_broken = dict(ALL_MET_WITH_DIGESTS)
-        never_na_broken["task_resolution.done_in_full"] = ("not_applicable", "d" * 64)
+        never_na_broken["task_resolution.done_in_full"] = ("out_of_scope", "d" * 64)
         incomplete = {c: v for c, v in list(ALL_MET_WITH_DIGESTS.items())[:3]}
         return {"case-met": ALL_MET_WITH_DIGESTS, "case-not-met": not_met, "case-some-na": some_na,
                 "case-all-na": all_na, "case-never-na": never_na_broken, "case-incomplete": incomplete}
@@ -307,12 +307,12 @@ class DayDocument(unittest.TestCase):
                                     CONTRACT_REF, TIERS, True, self.NEVER_NA)
         reasons = {s["case_id"]: s["reason"] for s in skipped}
         self.assertEqual(sorted(reasons), ["case-all-na", "case-incomplete", "case-never-na"])
-        self.assertIn("may never be not_applicable", reasons["case-all-na"])
-        # with no criterion marked never_not_applicable, all-N/A is still refused
+        self.assertIn("may never be out_of_scope", reasons["case-all-na"])
+        # with no criterion marked never_out_of_scope, all-out_of_scope is still refused
         _, skipped = day_document(self.PERIOD, {"case-all-na": self._day()["case-all-na"]}, "2026-09-23T23:59:59Z",
                                   ALL_CRITERIA, CONTRACT_REF, TIERS, True)
         self.assertIn("nothing was evaluated", skipped[0]["reason"])
-        self.assertIn("may never be not_applicable", reasons["case-never-na"])
+        self.assertIn("may never be out_of_scope", reasons["case-never-na"])
         self.assertEqual(reasons["case-incomplete"], "incomplete on this day")
 
     def test_the_headline_re_derives_from_the_document_alone(self):
