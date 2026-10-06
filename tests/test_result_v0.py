@@ -269,6 +269,9 @@ class OutOfScopeSwitch(unittest.TestCase):
         with self.assertRaisesRegex(RollupError, "not_applicable is not an adjudicator verdict"):
             build_result_v0("case", verdicts, {}, "2026-09-30T00:00:00Z", ALL_CRITERIA, CONTRACT_REF, ALL_JUDGED,
                             allow_out_of_scope=True)
+        with self.assertRaisesRegex(RollupError, "not_applicable is not an adjudicator verdict"):
+            build_result_v0_for_day("day:2026-09-30", [("case-a", verdicts, {}, ALL_JUDGED)], "2026-09-30T00:00:00Z",
+                                    ALL_CRITERIA, CONTRACT_REF, allow_out_of_scope=True)
         with self.assertRaisesRegex(RollupError, "not a verdict"):
             claim_for("x", "not_applicable", CONTRACT_REF, "judged")
 

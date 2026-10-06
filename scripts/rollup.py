@@ -71,16 +71,18 @@ VERDICTS_WITH_OOS = VERDICTS + (OUT_OF_SCOPE,)
 
 # The retired spelling, refused by name rather than as "not a verdict": it has
 # meant three different things in this stack, and a reader that sees it cannot
-# tell which one was meant.
+# tell which one was meant. Also refused by name in scripts/run_daily.py's
+# checked_answer and scripts/result_v0.py's build_result_v0_for_day.
 RETIRED_NOT_APPLICABLE = "not_applicable"
+RETIRED_NOT_APPLICABLE_REASON = ("not_applicable is not an adjudicator verdict: use out_of_scope (the criterion "
+                                 "does not apply here) or not_evaluable (it applies and could not be determined)")
 
 
-def _refuse_unknown(verdicts, valid):
+def refuse_unknown_verdicts(verdicts, valid):
     """RollupError naming every verdict outside `valid`, with not_applicable
     called out so its writer learns which word replaces it."""
     if RETIRED_NOT_APPLICABLE in verdicts:
-        raise RollupError("not_applicable is not an adjudicator verdict: use out_of_scope (the criterion "
-                          "does not apply here) or not_evaluable (it applies and could not be determined)")
+        raise RollupError(RETIRED_NOT_APPLICABLE_REASON)
     bad = [v for v in verdicts if v not in valid]
     if bad:
         raise RollupError(f"not a verdict: {bad!r}")
@@ -94,7 +96,7 @@ def combine(verdicts, allow_out_of_scope=False):
     verdicts = list(verdicts)
     if not verdicts:
         raise RollupError("combine() needs at least one verdict")
-    _refuse_unknown(verdicts, VERDICTS_WITH_OOS if allow_out_of_scope else VERDICTS)
+    refuse_unknown_verdicts(verdicts, VERDICTS_WITH_OOS if allow_out_of_scope else VERDICTS)
     in_scope = [v for v in verdicts if v != OUT_OF_SCOPE]
     if not in_scope:
         return OUT_OF_SCOPE

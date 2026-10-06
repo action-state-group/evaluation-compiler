@@ -77,7 +77,7 @@ class CheckedAnswer(unittest.TestCase):
 
     def test_not_applicable_is_refused_even_with_the_out_of_scope_vocabulary(self):
         self.assertNotIn("not_applicable", VERDICTS_WITH_OOS)
-        with self.assertRaises(EvidenceUnavailable):
+        with self.assertRaisesRegex(EvidenceUnavailable, "not_applicable is not an adjudicator verdict"):
             checked_answer({"verdict": "not_applicable"}, VERDICTS_WITH_OOS)
 
 

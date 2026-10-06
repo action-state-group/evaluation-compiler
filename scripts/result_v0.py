@@ -39,7 +39,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from rollup import RollupError, all_required_met  # noqa: E402
+from rollup import RollupError, all_required_met, refuse_unknown_verdicts  # noqa: E402
 
 CASE_SEPARATOR = "::"
 
@@ -79,7 +79,7 @@ def claim_for(criterion_id, verdict, contract_ref, tier, report_digest=None, cla
     existing caller/test.
 
     `verdict` is strictly `met`/`not_met`/`not_evaluable` -- Evidence Result v0's
-    closed Verdict enum, which this function never widens: a `out_of_scope`
+    closed Verdict enum, which this function never widens: an `out_of_scope`
     criterion is never passed here at all (see build_result_v0's own filtering,
     and this module's docstring on why)."""
     if verdict not in _VERDICTS:
@@ -197,10 +197,11 @@ def build_result_v0_for_day(period, case_rollups, generated_at, all_criteria, co
         missing = [c for c in all_criteria if c not in criterion_verdicts]
         if missing:
             raise RollupError(f"case {case_id!r} missing criteria: {missing!r}")
-        bad = [c for c in all_criteria
-               if criterion_verdicts[c] not in (_VERDICTS_WITH_OOS if allow_out_of_scope else _VERDICTS)]
-        if bad:
-            raise RollupError(f"case {case_id!r} carries unrecognized verdicts for {bad!r}")
+        try:
+            refuse_unknown_verdicts([criterion_verdicts[c] for c in all_criteria],
+                                    _VERDICTS_WITH_OOS if allow_out_of_scope else _VERDICTS)
+        except RollupError as e:
+            raise RollupError(f"case {case_id!r} carries unrecognized verdicts: {e}") from e
         if CASE_SEPARATOR in case_id:
             raise RollupError(f"case id {case_id!r} contains {CASE_SEPARATOR!r}; claim ids could not be regrouped")
         all_required_met(criterion_verdicts, all_criteria, allow_out_of_scope, never_out_of_scope)

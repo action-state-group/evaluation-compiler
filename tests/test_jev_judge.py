@@ -198,6 +198,15 @@ class NotApplicableOption(unittest.TestCase):
         answer = jev_judge.judge(request, backend=jevals.MockBackend(fn=lambda qid, q, state: "out_of_scope"))
         self.assertEqual(answer["verdict"], "out_of_scope")
 
+    def test_the_switch_run_daily_sends_is_the_one_jev_judge_reads(self):
+        # Built by run_daily's own request builder, so a renamed key on either side
+        # silently stops offering out_of_scope -- and this turns red.
+        sys.path.insert(0, str(ROOT / "scripts"))
+        from run_daily import _judge_request
+        request = dict(_judge_request(SAMPLE_REQUEST, ROOT, "jev-1.13.0", True), clause=SAMPLE_REQUEST["clause"])
+        answer = jev_judge.judge(request, backend=jevals.MockBackend(fn=lambda qid, q, state: "out_of_scope"))
+        self.assertEqual(answer["verdict"], "out_of_scope")
+
     def test_out_of_scope_is_structurally_unreachable_when_not_allowed(self):
         # the eval's own options never include out_of_scope unless allowed, so even
         # a backend that "wants" to answer out_of_scope can only pick among the three

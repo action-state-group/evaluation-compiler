@@ -2,13 +2,12 @@
 
     python3 -m unittest discover -s tests -p 'test_*.py'
 """
+import itertools
 import pathlib
 import sys
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
-
-import itertools  # noqa: E402
 
 from rollup import (OUT_OF_SCOPE, VERDICTS_WITH_OOS, RollupError, all_criteria_from_clauses,  # noqa: E402
                     all_required_met, checks_from_clauses, check_verdicts, combine,
@@ -205,12 +204,22 @@ class OutOfScopeNeverSatisfies(unittest.TestCase):
         # as the met, so swapping any met for out_of_scope can only lose a resolve.
         for combo in itertools.product(VERDICTS_WITH_OOS, repeat=len(self.SMALL)):
             verdicts = dict(zip(self.SMALL, combo))
-            in_scope = [v for v in combo if v != OUT_OF_SCOPE]
-            expected = bool(in_scope) and all(v == "met" for v in in_scope)
+            resolved = all_required_met(verdicts, self.SMALL, allow_out_of_scope=True)
             with self.subTest(verdicts=verdicts):
-                self.assertEqual(all_required_met(verdicts, self.SMALL, allow_out_of_scope=True), expected)
+                self.assertEqual(resolved, combo.count("met") >= 1
+                                 and combo.count("met") + combo.count(OUT_OF_SCOPE) == len(combo))
                 if combine(combo, allow_out_of_scope=True) == "met":
                     self.assertIn("met", combo)
+                for i, v in enumerate(combo):
+                    if v == "met":
+                        swapped = dict(verdicts, **{self.SMALL[i]: OUT_OF_SCOPE})
+                        self.assertLessEqual(all_required_met(swapped, self.SMALL, allow_out_of_scope=True), resolved)
+                if not resolved:
+                    for i, v in enumerate(combo):
+                        if v != "met":
+                            swapped = dict(verdicts, **{self.SMALL[i]: OUT_OF_SCOPE})
+                            if any(w not in ("met", OUT_OF_SCOPE) for j, w in enumerate(combo) if j != i):
+                                self.assertFalse(all_required_met(swapped, self.SMALL, allow_out_of_scope=True))
 
     def test_a_check_with_no_criterion_that_applies_is_never_met(self):
         verdicts = dict(ALL_MET, **{c: "out_of_scope" for c in CHECKS["task_resolution"]})
@@ -218,10 +227,12 @@ class OutOfScopeNeverSatisfies(unittest.TestCase):
         self.assertEqual(checks["task_resolution"], "out_of_scope")
 
     def test_out_of_scope_is_never_aliased_to_not_evaluable(self):
-        self.assertNotEqual(OUT_OF_SCOPE, "not_evaluable")
-        for combo in itertools.product(("met", OUT_OF_SCOPE), repeat=3):
+        # combine() yields not_evaluable only when a not_evaluable was put in: no
+        # out_of_scope, in any mix, ever turns into one.
+        for combo in itertools.product(VERDICTS_WITH_OOS, repeat=3):
             with self.subTest(combo=combo):
-                self.assertNotEqual(combine(combo, allow_out_of_scope=True), "not_evaluable")
+                if combine(combo, allow_out_of_scope=True) == "not_evaluable":
+                    self.assertIn("not_evaluable", combo)
         self.assertEqual(combine([OUT_OF_SCOPE], allow_out_of_scope=True), OUT_OF_SCOPE)
 
     def test_not_applicable_is_refused_as_a_verdict_by_name(self):

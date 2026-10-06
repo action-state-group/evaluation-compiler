@@ -60,6 +60,7 @@ from capsulectl_calls import (EvidenceUnavailable, committed_on, list_capsules, 
                               publish, run, seal_request, verify)
 from judge_pin import DEFAULT_JUDGE_TIMEOUT, describe_judge, pin_input as build_pin_input  # noqa: E402
 from recompute import RECOMPUTE_CHECKS  # noqa: E402
+from rollup import RETIRED_NOT_APPLICABLE, RETIRED_NOT_APPLICABLE_REASON  # noqa: E402
 
 VERDICTS = {"met", "not_met", "not_evaluable"}
 VERDICTS_WITH_OOS = VERDICTS | {"out_of_scope"}
@@ -69,6 +70,8 @@ def checked_answer(answer, valid_verdicts=VERDICTS):
     """The judge's (or checker's) answer, refused unless it carries one of the
     allowed verdicts -- VERDICTS, or VERDICTS_WITH_OOS when the contract's
     out_of_scope_verdict switch is on for this clause."""
+    if isinstance(answer, dict) and answer.get("verdict") == RETIRED_NOT_APPLICABLE:
+        raise EvidenceUnavailable(f"judge returned no valid verdict: {RETIRED_NOT_APPLICABLE_REASON}: {answer!r}")
     if not isinstance(answer, dict) or answer.get("verdict") not in valid_verdicts:
         raise EvidenceUnavailable(f"judge returned no valid verdict: {answer!r}")
     return answer
