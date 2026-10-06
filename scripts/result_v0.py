@@ -70,7 +70,12 @@ def claim_for(criterion_id, verdict, contract_ref, tier, report_digest=None, cla
     relabelled "judged".
 
     `report_digest` is the sealed evaluation-report/v1 capsule's digest for this
-    criterion, when known -- cited in evidence[] but never inline.
+    criterion, when known -- cited in evidence[] but never inline. A deterministic
+    (tier: recomputed) claim over a GROUP of records rather than one judged
+    conversation may need to cite more than one contributing capsule; `report_digest`
+    also accepts a list/tuple of digests for exactly that case (scripts/report_spec.py's
+    callers), each turned into its own evidence[] entry -- every existing caller still
+    passes a bare digest string or None, unaffected.
 
     `source_capsule_id` is that report's own citation of the case record it
     judged (evaluation-report/v1's `source_capsule_id`, always a book capsule's
@@ -100,7 +105,13 @@ def claim_for(criterion_id, verdict, contract_ref, tier, report_digest=None, cla
         raise RollupError(f"not a verdict: {verdict!r}")
     sufficiency = "GAP" if verdict == "not_evaluable" else "SATISFIED"
     disclosure_status = "INSUFFICIENT" if verdict == "not_evaluable" else "SATISFIED"
-    evidence = [_digest_ref(report_digest)] if report_digest else []
+    if not report_digest:
+        digests = []
+    elif isinstance(report_digest, (list, tuple, set)):
+        digests = list(report_digest)
+    else:
+        digests = [report_digest]
+    evidence = [_digest_ref(d) for d in digests]
     if source_capsule_id:
         evidence.append(_digest_ref(source_capsule_id))
     return {
